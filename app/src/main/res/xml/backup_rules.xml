@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Empty for Phase 1 — no user data exists yet to include/exclude.
+    Revisit once Room stores real score data (Phase 2): local scores/PDFs
+    are large and regenerable from re-import, so they will likely be
+    excluded from auto backup to avoid bloating backup size.
+-->
+<full-backup-content>
+</full-backup-content>

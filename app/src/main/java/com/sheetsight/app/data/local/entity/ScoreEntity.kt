@@ -44,6 +44,12 @@ data class ScoreEntity(
     @ColumnInfo(name = "is_favorite")
     val isFavorite: Boolean = false,
 
+    @ColumnInfo(name = "last_viewed_page")
+    val lastViewedPage: Int = 0,
+
+    @ColumnInfo(name = "last_viewed_zoom")
+    val lastViewedZoom: Float = 1f,
+
     /** 0f (not started) – 1f (fully mastered). Populated starting Phase 6/9. */
     @ColumnInfo(name = "practice_progress")
     val practiceProgress: Float = 0f,

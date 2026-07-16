@@ -79,7 +79,8 @@ private val FavoriteGold = Color(0xFFFFD700)
 @Composable
 fun LibraryScreen(
     modifier: Modifier = Modifier,
-    viewModel: LibraryViewModel = hiltViewModel()
+    viewModel: LibraryViewModel = hiltViewModel(),
+    onOpenScore: (Long) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -168,7 +169,10 @@ fun LibraryScreen(
                     else -> LibraryContent(
                         scores = uiState.scores,
                         viewMode = uiState.viewMode,
-                        onOpen = viewModel::onScoreOpened,
+                        onOpen = { score ->
+                            viewModel.onScoreOpened(score)
+                            onOpenScore(score.id)
+                        },
                         onToggleFavorite = viewModel::onToggleFavorite,
                         onRename = viewModel::onRenameRequested,
                         onDelete = viewModel::onDeleteRequested

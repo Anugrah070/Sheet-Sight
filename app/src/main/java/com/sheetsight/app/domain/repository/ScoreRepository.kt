@@ -32,6 +32,12 @@ interface ScoreRepository {
     /** Stamps [id] with the current time as its last-opened time. */
     suspend fun markOpened(id: Long, timestamp: Long)
 
+    /** Updates the last viewed page for the score with [id]. */
+    suspend fun updateLastViewedPage(id: Long, page: Int)
+
+    /** Updates the last viewed zoom level for the score with [id]. */
+    suspend fun updateLastViewedZoom(id: Long, zoom: Float)
+
     suspend fun updatePracticeProgress(id: Long, progress: Float)
 
     /** Called once OMR/editing has produced a MusicXML file for this score. */

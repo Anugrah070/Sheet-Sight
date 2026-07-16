@@ -41,6 +41,12 @@ class ScoreRepositoryImpl @Inject constructor(
     override suspend fun markOpened(id: Long, timestamp: Long) =
         scoreDao.updateLastOpened(id, timestamp)
 
+    override suspend fun updateLastViewedPage(id: Long, page: Int) =
+        scoreDao.updateLastViewedPage(id, page)
+
+    override suspend fun updateLastViewedZoom(id: Long, zoom: Float) =
+        scoreDao.updateLastViewedZoom(id, zoom)
+
     override suspend fun updatePracticeProgress(id: Long, progress: Float) =
         scoreDao.updatePracticeProgress(id, progress)
 

@@ -12,6 +12,8 @@ fun ScoreEntity.toDomain(): Score = Score(
     lastOpenedDate = lastOpenedDate,
     pageCount = pageCount,
     isFavorite = isFavorite,
+    lastViewedPage = lastViewedPage,
+    lastViewedZoom = lastViewedZoom,
     practiceProgress = practiceProgress,
     notes = notes
 )
@@ -26,6 +28,8 @@ fun Score.toEntity(): ScoreEntity = ScoreEntity(
     lastOpenedDate = lastOpenedDate,
     pageCount = pageCount,
     isFavorite = isFavorite,
+    lastViewedPage = lastViewedPage,
+    lastViewedZoom = lastViewedZoom,
     practiceProgress = practiceProgress,
     notes = notes
 )

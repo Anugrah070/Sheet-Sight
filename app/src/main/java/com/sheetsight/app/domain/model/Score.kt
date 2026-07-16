@@ -29,6 +29,8 @@ data class Score(
     val lastOpenedDate: Long? = null,
     val pageCount: Int,
     val isFavorite: Boolean = false,
+    val lastViewedPage: Int = 0,
+    val lastViewedZoom: Float = 1f,
     val practiceProgress: Float = 0f,
     val notes: String? = null
 )

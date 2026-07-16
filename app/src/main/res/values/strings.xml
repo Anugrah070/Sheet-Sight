@@ -7,6 +7,11 @@
     <string name="nav_practice">Practice</string>
     <string name="nav_analysis">Analysis</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_preview">Preview</string>
+
+    <string name="preview_loading">Loading score…</string>
+    <string name="preview_error">Couldn\'t load the score.</string>
+    <string name="preview_page_indicator">Page %1$d of %2$d</string>
 
     <string name="library_placeholder">Your imported scores will appear here.</string>
     <string name="library_no_results">No scores match your search.</string>

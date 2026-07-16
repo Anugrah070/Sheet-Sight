@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.sheetsight.app.R
 
@@ -25,6 +26,12 @@ sealed class Destination(
     data object Practice : Destination("practice", R.string.nav_practice, Icons.Filled.PlayArrow)
     data object Analysis : Destination("analysis", R.string.nav_analysis, Icons.Filled.Analytics)
     data object Settings : Destination("settings", R.string.nav_settings, Icons.Filled.Settings)
+
+    data class Preview(val scoreId: Long) : Destination("preview/$scoreId", R.string.nav_preview, Icons.Filled.Visibility) {
+        companion object {
+            const val ROUTE_PATTERN = "preview/{scoreId}"
+        }
+    }
 
     companion object {
         val bottomBarDestinations = listOf(Library, Editor, Practice, Analysis, Settings)

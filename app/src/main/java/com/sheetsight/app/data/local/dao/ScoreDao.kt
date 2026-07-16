@@ -38,9 +38,6 @@ interface ScoreDao {
     @Query("UPDATE scores SET last_opened_date = :timestamp WHERE id = :id")
     suspend fun updateLastOpened(id: Long, timestamp: Long)
 
-    @Query("UPDATE scores SET is_favorite = :isFavorite WHERE id = :id")
-    suspend fun updateFavorite(id: Long, isFavorite: Boolean)
-
     @Query("UPDATE scores SET practice_progress = :progress WHERE id = :id")
     suspend fun updatePracticeProgress(id: Long, progress: Float)
 

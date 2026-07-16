@@ -20,12 +20,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-private const val RECENTLY_OPENED_LIMIT = 8
 private const val REFRESH_MIN_DURATION_MS = 400L
 
 /**
@@ -38,16 +39,12 @@ private const val REFRESH_MIN_DURATION_MS = 400L
  *   distinct from [scores] being empty due to an active search filter.
  * @property scores The scores to display: all stored scores, filtered by
  *   [searchQuery] and ordered by [sortOption].
- * @property recentlyOpened Up to [RECENTLY_OPENED_LIMIT] scores with the most
- *   recent [Score.lastOpenedDate], most recent first. Empty until the user has
- *   opened at least one score.
  * @property isLoading True only until the first emission arrives from Room.
  * @property isImporting True while a file selected via the FAB is being
  *   copied into local storage and its metadata written to Room.
  */
 data class LibraryUiState(
     val scores: List<Score> = emptyList(),
-    val recentlyOpened: List<Score> = emptyList(),
     val allScoresEmpty: Boolean = false,
     val isLoading: Boolean = true,
     val searchQuery: String = "",
@@ -94,22 +91,32 @@ class LibraryViewModel @Inject constructor(
     /** One-shot UI events (import/delete success/error messages) for the screen to show as snackbars. */
     val events: Flow<String> = eventChannel.receiveAsFlow()
 
+    private val allScores = scoreRepository.getAllScores()
+
+    private val filteredScores = combine(
+        allScores,
+        searchQuery,
+        sortOption
+    ) { scores, query, sort ->
+        scores.filterByQuery(query).sortedWith(sort)
+    }.distinctUntilChanged()
+
     val uiState: StateFlow<LibraryUiState> = combine(
-        scoreRepository.getAllScores(),
+        filteredScores,
+        allScores.map { it.isEmpty() }.distinctUntilChanged(),
         searchQuery,
         sortOption,
         isImporting,
         viewMode
-    ) { allScores, query, sort, importing, mode ->
+    ) { args ->
         LibraryUiState(
-            scores = allScores.filterByQuery(query).sortedWith(sort),
-            recentlyOpened = allScores.recentlyOpened(),
-            allScoresEmpty = allScores.isEmpty(),
+            scores = args[0] as List<Score>,
+            allScoresEmpty = args[1] as Boolean,
             isLoading = false,
-            searchQuery = query,
-            sortOption = sort,
-            isImporting = importing,
-            viewMode = mode
+            searchQuery = args[2] as String,
+            sortOption = args[3] as LibrarySortOption,
+            isImporting = args[4] as Boolean,
+            viewMode = args[5] as LibraryViewMode
         )
     }.stateIn(
         scope = viewModelScope,
@@ -135,13 +142,13 @@ class LibraryViewModel @Inject constructor(
 
     fun onToggleFavorite(score: Score) {
         viewModelScope.launch {
-            scoreRepository.setFavorite(score.id, !score.isFavorite)
+            scoreRepository.updateScore(score.copy(isFavorite = !score.isFavorite))
         }
     }
 
     /**
      * Records that [score] was opened (updates [Score.lastOpenedDate], which
-     * feeds "Recently Opened" and the "Recently Practiced" sort). There's no
+     * feeds the "Recently Practiced" sort). There's no
      * Editor/Practice destination to navigate to yet (Phase 5/6), so this is
      * currently the entire "open" action.
      */
@@ -211,27 +218,23 @@ class LibraryViewModel @Inject constructor(
             val outcome = importScoreUseCase(uri)
             isImporting.value = false
             val message = when (outcome) {
-                is ImportOutcome.Success -> successMessage(outcome.score.title)
+                is ImportOutcome.Success -> context.getString(R.string.import_success, outcome.score.title)
                 is ImportOutcome.Failure -> outcome.message
             }
             eventChannel.send(message)
         }
     }
 
-    private fun successMessage(title: String): String =
-        context.getString(R.string.import_success, title)
-
     private fun List<Score>.filterByQuery(query: String): List<Score> =
         if (query.isBlank()) this else filter { it.title.contains(query, ignoreCase = true) }
 
-    private fun List<Score>.sortedWith(sort: LibrarySortOption): List<Score> = when (sort) {
-        LibrarySortOption.NAME -> sortedBy { it.title.lowercase() }
-        LibrarySortOption.DATE_IMPORTED -> sortedByDescending { it.importDate }
-        LibrarySortOption.RECENTLY_PRACTICED -> sortedByDescending { it.lastOpenedDate ?: 0L }
+    private fun List<Score>.sortedWith(sort: LibrarySortOption): List<Score> {
+        val comparator = compareByDescending<Score> { it.isFavorite }
+            .then(when (sort) {
+                LibrarySortOption.NAME -> compareBy { it.title.lowercase() }
+                LibrarySortOption.DATE_IMPORTED -> compareByDescending { it.importDate }
+                LibrarySortOption.RECENTLY_PRACTICED -> compareByDescending { it.lastOpenedDate ?: 0L }
+            })
+        return sortedWith(comparator)
     }
-
-    private fun List<Score>.recentlyOpened(): List<Score> =
-        filter { it.lastOpenedDate != null }
-            .sortedByDescending { it.lastOpenedDate }
-            .take(RECENTLY_OPENED_LIMIT)
 }

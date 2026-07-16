@@ -14,11 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -28,7 +25,6 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -63,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -71,10 +68,12 @@ import com.sheetsight.app.R
 import com.sheetsight.app.domain.model.Score
 import com.sheetsight.app.ui.common.PlaceholderContent
 
+private val FavoriteGold = Color(0xFFFFD700)
+
 /**
  * Library tab: search, sort, grid/list browsing, favorite, rename, delete,
- * a Recently Opened row, pull-to-refresh, and import (requirement 7). OMR/
- * MusicXML generation is still Phase 4 — import only stores the raw file.
+ * pull-to-refresh, and import. OMR/MusicXML generation is still Phase 4 —
+ * import only stores the raw file.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,7 +156,7 @@ fun LibraryScreen(
                 )
 
                 when {
-                    uiState.isLoading -> Unit // Root theme background is enough while first Room emission loads.
+                    uiState.isLoading -> Unit
                     uiState.allScoresEmpty -> PlaceholderContent(
                         message = stringResource(R.string.library_placeholder),
                         modifier = Modifier.fillMaxSize()
@@ -168,8 +167,6 @@ fun LibraryScreen(
                     )
                     else -> LibraryContent(
                         scores = uiState.scores,
-                        recentlyOpened = uiState.recentlyOpened,
-                        showRecentlyOpened = uiState.searchQuery.isBlank(),
                         viewMode = uiState.viewMode,
                         onOpen = viewModel::onScoreOpened,
                         onToggleFavorite = viewModel::onToggleFavorite,
@@ -247,19 +244,14 @@ private fun SortOptionRow(
 @Composable
 private fun LibraryContent(
     scores: List<Score>,
-    recentlyOpened: List<Score>,
-    showRecentlyOpened: Boolean,
     viewMode: LibraryViewMode,
     onOpen: (Score) -> Unit,
     onToggleFavorite: (Score) -> Unit,
     onRename: (Score) -> Unit,
     onDelete: (Score) -> Unit
 ) {
-    when (viewMode) {
-        LibraryViewMode.LIST -> LazyColumn(modifier = Modifier.fillMaxWidth()) {
-            if (showRecentlyOpened && recentlyOpened.isNotEmpty()) {
-                item { RecentlyOpenedRow(recentlyOpened, onOpen) }
-            }
+    if (viewMode == LibraryViewMode.LIST) {
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
             items(scores, key = { it.id }) { score ->
                 ScoreListItem(
                     score = score,
@@ -270,18 +262,14 @@ private fun LibraryContent(
                 )
             }
         }
-        LibraryViewMode.GRID -> LazyVerticalGrid(
+    } else {
+        LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (showRecentlyOpened && recentlyOpened.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    RecentlyOpenedRow(recentlyOpened, onOpen)
-                }
-            }
             items(scores, key = { it.id }) { score ->
                 ScoreGridItem(
                     score = score,
@@ -297,49 +285,71 @@ private fun LibraryContent(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecentlyOpenedRow(scores: List<Score>, onOpen: (Score) -> Unit) {
-    Column(modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Filled.History,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = stringResource(R.string.library_recently_opened_header),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(start = 8.dp)
-            )
-        }
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(scores, key = { "recent_${it.id}" }) { score ->
-                Card(
-                    modifier = Modifier
-                        .width(140.dp)
-                        .combinedClickable(onClick = { onOpen(score) })
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = score.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 2
-                        )
-                    }
-                }
-            }
-        }
+private fun ScoreItemCard(
+    score: Score,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    content: @Composable (Boolean, () -> Unit, () -> Unit) -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = modifier.combinedClickable(
+            onClick = onOpen,
+            onLongClick = { menuExpanded = true }
+        )
+    ) {
+        content(menuExpanded, { menuExpanded = true }, { menuExpanded = false })
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FavoriteButton(
+    isFavorite: Boolean,
+    onClick: () -> Unit
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+            contentDescription = stringResource(R.string.library_favorite_cd),
+            tint = if (isFavorite) FavoriteGold else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ScoreActionsButton(
+    scoreTitle: String,
+    menuExpanded: Boolean,
+    isFavorite: Boolean,
+    onShowMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onOpen: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Box {
+        IconButton(onClick = onShowMenu) {
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = stringResource(R.string.library_item_actions_cd, scoreTitle)
+            )
+        }
+        ScoreActionsMenu(
+            expanded = menuExpanded,
+            isFavorite = isFavorite,
+            onDismiss = onDismissMenu,
+            onOpen = onOpen,
+            onToggleFavorite = onToggleFavorite,
+            onRename = onRename,
+            onDelete = onDelete
+        )
+    }
+}
+
 @Composable
 private fun ScoreListItem(
     score: Score,
@@ -348,21 +358,16 @@ private fun ScoreListItem(
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .combinedClickable(
-                onClick = onOpen,
-                onLongClick = { menuExpanded = true }
-            )
-    ) {
+    ScoreItemCard(
+        score = score,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        onOpen = onOpen,
+        onToggleFavorite = onToggleFavorite,
+        onRename = onRename,
+        onDelete = onDelete
+    ) { menuExpanded, onShowMenu, onDismissMenu ->
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -373,34 +378,22 @@ private fun ScoreListItem(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            IconButton(onClick = onToggleFavorite) {
-                Icon(
-                    imageVector = if (score.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                    contentDescription = stringResource(R.string.library_favorite_cd)
-                )
-            }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = stringResource(R.string.library_item_actions_cd, score.title)
-                    )
-                }
-                ScoreActionsMenu(
-                    expanded = menuExpanded,
-                    isFavorite = score.isFavorite,
-                    onDismiss = { menuExpanded = false },
-                    onOpen = onOpen,
-                    onToggleFavorite = onToggleFavorite,
-                    onRename = onRename,
-                    onDelete = onDelete
-                )
-            }
+            FavoriteButton(isFavorite = score.isFavorite, onClick = onToggleFavorite)
+            ScoreActionsButton(
+                scoreTitle = score.title,
+                menuExpanded = menuExpanded,
+                isFavorite = score.isFavorite,
+                onShowMenu = onShowMenu,
+                onDismissMenu = onDismissMenu,
+                onOpen = onOpen,
+                onToggleFavorite = onToggleFavorite,
+                onRename = onRename,
+                onDelete = onDelete
+            )
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ScoreGridItem(
     score: Score,
@@ -409,16 +402,14 @@ private fun ScoreGridItem(
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onOpen,
-                onLongClick = { menuExpanded = true }
-            )
-    ) {
+    ScoreItemCard(
+        score = score,
+        modifier = Modifier.fillMaxWidth(),
+        onOpen = onOpen,
+        onToggleFavorite = onToggleFavorite,
+        onRename = onRename,
+        onDelete = onDelete
+    ) { menuExpanded, onShowMenu, onDismissMenu ->
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = score.title,
@@ -434,29 +425,18 @@ private fun ScoreGridItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onToggleFavorite) {
-                    Icon(
-                        imageVector = if (score.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                        contentDescription = stringResource(R.string.library_favorite_cd)
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = stringResource(R.string.library_item_actions_cd, score.title)
-                        )
-                    }
-                    ScoreActionsMenu(
-                        expanded = menuExpanded,
-                        isFavorite = score.isFavorite,
-                        onDismiss = { menuExpanded = false },
-                        onOpen = onOpen,
-                        onToggleFavorite = onToggleFavorite,
-                        onRename = onRename,
-                        onDelete = onDelete
-                    )
-                }
+                FavoriteButton(isFavorite = score.isFavorite, onClick = onToggleFavorite)
+                ScoreActionsButton(
+                    scoreTitle = score.title,
+                    menuExpanded = menuExpanded,
+                    isFavorite = score.isFavorite,
+                    onShowMenu = onShowMenu,
+                    onDismissMenu = onDismissMenu,
+                    onOpen = onOpen,
+                    onToggleFavorite = onToggleFavorite,
+                    onRename = onRename,
+                    onDelete = onDelete
+                )
             }
         }
     }
@@ -490,7 +470,8 @@ private fun ScoreActionsMenu(
             leadingIcon = {
                 Icon(
                     imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                    contentDescription = null
+                    contentDescription = null,
+                    tint = if (isFavorite) FavoriteGold else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             onClick = { onDismiss(); onToggleFavorite() }

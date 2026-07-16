@@ -8,12 +8,14 @@ import com.sheetsight.app.domain.repository.ScoreRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * [ScoreRepository] implementation backed by Room via [ScoreDao]. All
  * entity<->domain mapping happens here so the rest of the app never
  * touches [com.sheetsight.app.data.local.entity.ScoreEntity] directly.
  */
+@Singleton
 class ScoreRepositoryImpl @Inject constructor(
     private val scoreDao: ScoreDao
 ) : ScoreRepository {
@@ -38,9 +40,6 @@ class ScoreRepositoryImpl @Inject constructor(
 
     override suspend fun markOpened(id: Long, timestamp: Long) =
         scoreDao.updateLastOpened(id, timestamp)
-
-    override suspend fun setFavorite(id: Long, isFavorite: Boolean) =
-        scoreDao.updateFavorite(id, isFavorite)
 
     override suspend fun updatePracticeProgress(id: Long, progress: Float) =
         scoreDao.updatePracticeProgress(id, progress)

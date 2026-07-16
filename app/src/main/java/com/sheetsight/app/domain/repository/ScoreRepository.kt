@@ -32,8 +32,6 @@ interface ScoreRepository {
     /** Stamps [id] with the current time as its last-opened time. */
     suspend fun markOpened(id: Long, timestamp: Long)
 
-    suspend fun setFavorite(id: Long, isFavorite: Boolean)
-
     suspend fun updatePracticeProgress(id: Long, progress: Float)
 
     /** Called once OMR/editing has produced a MusicXML file for this score. */

@@ -25,7 +25,6 @@
 
     <string name="library_view_list_cd">Switch to list view</string>
     <string name="library_view_grid_cd">Switch to grid view</string>
-    <string name="library_recently_opened_header">Recently Opened</string>
 
     <string name="library_action_open">Open</string>
     <string name="library_action_rename">Rename</string>

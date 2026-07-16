@@ -24,7 +24,7 @@ screens that every later phase builds on.
 | Navigation             | Navigation Compose                        |
 | Local persistence      | Room                                      |
 | Async                  | Kotlin Coroutines + Flow                  |
-| OMR (Phase 4)          | Audiveris                                 |
+| OMR (Phase 4)          | ONNX Runtime Mobile + OpenCV Android SDK (oemer models) |
 | Pitch detection (Ph.6) | TarsosDSP                                 |
 
 Entirely offline — no network calls, no cloud dependency, no AI API calls

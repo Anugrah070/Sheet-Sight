@@ -15,6 +15,8 @@ coil = "2.7.0"
 junit = "4.13.2"
 androidxJunit = "1.2.1"
 espresso = "3.6.1"
+onnxruntime = "1.27.0"
+opencv = "5.0.0.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -48,6 +50,10 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+
+# OMR (Phase 4 foundation) — native inference + image preprocessing.
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

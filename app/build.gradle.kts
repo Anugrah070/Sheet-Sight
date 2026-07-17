@@ -86,6 +86,13 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
+    // OMR (Phase 4 foundation): native inference (ONNX Runtime Mobile) and
+    // image preprocessing (OpenCV Android SDK). No inference or
+    // preprocessing code exists yet — see data/omr/ for the Phase 4.1
+    // scaffolding this supports; the actual pipeline lands in Phase 4.2.
+    implementation(libs.onnxruntime.android)
+    implementation(libs.opencv)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

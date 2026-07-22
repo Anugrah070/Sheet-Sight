@@ -50,13 +50,15 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   qualified coroutine dispatchers, and the OMR module.
 - **OMR pipeline integration**: The pipeline is wired from image decode
   through dewarping via `OnnxOmrEngine` → `OmrPageDewarpRunner`.
-- **OMR pipeline components (verified with 53 passing unit tests)**:
+- **OMR pipeline components (verified with 64 passing unit tests)**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
-  - **Dewarping**: staffline geometry estimation, gap-bridging,
-    coordinate mapping, and remap application — fully integrated and
-    mathematically verified against oemer's behavior.
+  - dewarping geometry estimation, gap-bridging, coordinate mapping, and
+    remap application.
+  - **Staffline extraction**: vertical row-density histogram, z-score
+    normalization, peak detection (verified against scipy), and 5-line
+    staff grouping.
 
 ### In progress
 - **OMR pipeline completion**: The pipeline correctly produces a
@@ -66,10 +68,9 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   tests exist yet for the OpenCV/ONNX native code paths.
 
 ### Planned / not yet implemented
-- Staffline extraction, notehead extraction, note grouping, symbol
-  classification (clefs/accidentals/rests via SVM classifiers), rhythm
-  extraction, and MusicXML generation — none of this exists in the
-  codebase yet.
+- Notehead extraction, note grouping, symbol classification
+  (clefs/accidentals/rests via SVM classifiers), rhythm extraction, and
+  MusicXML generation — none of this exists in the codebase yet.
 - Editor tab (notation editing) — placeholder screen only.
 - Practice tab (pitch detection, cursor tracking, metronome, looping) —
   placeholder screen only. `TarsosDSP` is not present as a dependency.
@@ -142,10 +143,20 @@ dewarping. It consists of independently testable Kotlin components under
 - `StafflineGridBridger`: bridges gaps in stafflines via linear regression.
 - `DewarpMappingBuilder`: extracts control points from the bridged map.
 - `DewarpCoordinateInterpolator`: dense coordinate map construction (row-then-column linear interpolation approximation).
-- `ImageMaskAligner`: **NEW** — ensures pixel alignment between the
-  canonical image and masks.
+- `ImageMaskAligner`: ensures pixel alignment between the canonical image and masks.
 - `DewarpRemapper`: cubic remap application for image and all 5 masks.
 - `DewarpPipeline`: orchestrates the full geometric transformation.
+
+### 3.7 Staffline extraction (`data/omr/staffline/`) — implemented and verified
+- `PeakFinder`: **NEW** — pure-Kotlin port of `scipy.signal.find_peaks`,
+  verified bit-for-bit against scipy 1.17.1 for height/distance/prominence.
+- `ZoneStafflineExtractor`: **NEW** — orchestrates per-zone extraction:
+  z-scored row density → peak detection → 5-line grouping → pixel
+  assignment.
+- `Staffline`: **NEW** — data model for a single line with lazy geometry
+  (y-center, slope via OLS).
+- `ZoneStaff`: **NEW** — a group of exactly five `Staffline`s within a
+  vertical zone.
 
 ---
 
@@ -241,7 +252,8 @@ PDF/JPG/PNG file
   morphology → grid detect/group → gap-bridge → mapping → cubic remap
       │
       ▼
-[Staffline extraction]                             📋 planned — not started
+[Staffline extraction: ZoneStafflineExtractor]     ✅ implemented
+  row density → z-score → peak find → 5-line group
       │
       ▼
 [Notehead extraction]                              📋 planned — not started
@@ -272,23 +284,19 @@ In dependency order, all **planned / not yet implemented**:
 
 1. **Wire the existing pipeline together** — `OnnxOmrEngine.recognize()`
    needs to actually call `OmrPreprocessor` → `TileInferenceRunner` →
-   `PredictionMapMerger` → `ClassMaskExtractor` → `DewarpPipeline` in
-   sequence, and connect it to a real decoded page `Bitmap`.
+   `PredictionMapMerger` → `ClassMaskExtractor` → `DewarpPipeline` →
+   `ZoneStafflineExtractor` in sequence.
 2. **Finish validating dewarping** — instrumented tests against real
-   OpenCV `Mat` data and real page images; a test for the bridging
-   merge-success path.
-3. **Staffline extraction** — turn the dewarped `staff` mask into
-   structured `Staff`/unit-size data (oemer's `staffline_extraction.py`).
-4. **Notehead extraction** — turn the dewarped `noteheads` mask into
+   OpenCV `Mat` data and real page images.
+3. **Notehead extraction** — turn the dewarped `noteheads` mask into
    individual notehead objects (`notehead_extraction.py`).
-5. **Note grouping** — group noteheads into chords via stem direction
+4. **Note grouping** — group noteheads into chords via stem direction
    (`note_group_extraction.py`).
-6. **Symbol classification** — barlines, clefs, sharps/flats/naturals,
+5. **Symbol classification** — barlines, clefs, sharps/flats/naturals,
    rests (`symbol_extraction.py`). Requires scikit-learn SVM models that
-   are **not currently part of this project** (see section 10) — this is
-   a real, unresolved dependency gap, not just unwritten code.
-7. **Rhythm extraction** — dots, beams, flags (`rhythm_extraction.py`).
-8. **MusicXML generation** — assemble all of the above into a MusicXML
+   are **not currently part of this project**.
+6. **Rhythm extraction** — dots, beams, flags (`rhythm_extraction.py`).
+7. **MusicXML generation** — assemble all of the above into a MusicXML
    document (`build_system.py`'s `MusicXMLBuilder`).
 9. Only after MusicXML exists: Editor, Practice, Analysis, Fingering,
    Statistics tabs can move past their current placeholder state.
@@ -297,17 +305,18 @@ In dependency order, all **planned / not yet implemented**:
 
 ## 8. Testing
 
-The OMR pipeline is verified with **53 passing JVM unit tests**
+The OMR pipeline is verified with **64 passing JVM unit tests**
 (`app/src/test/...`). These verify the mathematical correctness of
-preprocessing, inference merging, mask extraction, and the full dewarping
-logic using synthetic and real-structured data.
+preprocessing, inference merging, mask extraction, full dewarping logic,
+and peak detection/staff extraction using synthetic and real-structured
+data.
 
 | Test file | Covers |
 |---|---|
 | `preprocessing/CanonicalImageResizerTest` | Target-size computation. |
 | `preprocessing/SlidingWindowTilerTest` | Tile-origin computation. |
 | `inference/ClassMaskExtractorTest` | Argmax correctness and validation. |
-| `dewarp/ImageMaskAlignerTest` | **NEW** — source-to-mask size reconciliation. |
+| `dewarp/ImageMaskAlignerTest` | Source-to-mask size reconciliation. |
 | `dewarp/StaffMaskMorphologyTest` | Dilate/erode primitives and border handling. |
 | `dewarp/StafflineGridDetectorTest` | Grid detection and filtering. |
 | `dewarp/StafflineGridGrouperTest` | Region-based grid grouping. |
@@ -318,6 +327,8 @@ logic using synthetic and real-structured data.
 | `dewarp/DewarpRemapperTest` | Cubic remap and mask thresholding. |
 | `dewarp/StafflineGridBridgerTest` | Gap bridging logic. |
 | `dewarp/DewarpPipelineTest` | End-to-end pipeline orchestration. |
+| `staffline/PeakFinderTest` | **NEW** — Bit-for-bit scipy `find_peaks` regression. |
+| `staffline/ZoneStafflineExtractorTest` | **NEW** — End-to-end zone extraction logic. |
 
 No tests exist yet for: `OmrPreprocessor`, `OmrTensorFactory`,
 `OrtSessionProvider`, `TileInferenceRunner`, `PredictionMapMerger`,
@@ -333,7 +344,7 @@ Confirmed from the project's own Gradle configuration:
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — **53 tests passing**.
+- **Tests**: `./gradlew testDebugUnitTest` — **64 tests passing**.
 - **Before running OMR-related code**: copy the two `.onnx` model files
   into `app/src/main/assets/models/` (see section 4) — they are not
   currently there.

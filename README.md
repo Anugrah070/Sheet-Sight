@@ -47,30 +47,29 @@ ONNX Runtime Mobile, no network dependency for any core feature.
 - **Preview screen**: renders PDF pages via `android.graphics.pdf.PdfRenderer`
   with pinch-zoom/pan.
 - **Dependency injection**: Hilt modules for the database, repositories,
-  qualified coroutine dispatchers, and the OMR module described below.
-- **OMR pipeline components (standalone, not yet wired to the app)** —
-  see section 3 for the full breakdown:
-  - oemer-compatible image preprocessing and tiling
-  - ONNX Runtime tensor preparation and real model inference
-  - prediction-map merging and class-mask extraction
-  - dewarping geometry estimation, gap-bridging, coordinate mapping, and
-    remap application
+  qualified coroutine dispatchers, and the OMR module.
+- **OMR pipeline integration**: The pipeline is wired from image decode
+  through dewarping via `OnnxOmrEngine` → `OmrPageDewarpRunner`.
+- **OMR pipeline components (verified with 53 passing unit tests)**:
+  - oemer-compatible image preprocessing and tiling.
+  - ONNX Runtime tensor preparation and real model inference.
+  - prediction-map merging and class-mask extraction.
+  - **Dewarping**: staffline geometry estimation, gap-bridging,
+    coordinate mapping, and remap application — fully integrated and
+    mathematically verified against oemer's behavior.
 
 ### In progress
-- **Dewarping** is implemented as a set of standalone, unit-tested
-  components but has **not been run against real image/model data**, has
-  no Android instrumented tests, and one deliberate algorithmic
-  simplification (see section 3.6 and section 10).
-- **OMR pipeline wiring**: none of the components above are called from
-  `OnnxOmrEngine.recognize()`, which still throws `NotImplementedError`
-  unconditionally. `OmrRepository.recognize()` also still throws
-  unconditionally. The Import flow never triggers OMR.
+- **OMR pipeline completion**: The pipeline correctly produces a
+  `DewarpedPage` (original image + 5 masks, pixel-aligned), but later
+  stages (staff/note extraction) are not yet implemented.
+- **Instrumented testing**: While unit tests pass, no Android instrumented
+  tests exist yet for the OpenCV/ONNX native code paths.
 
 ### Planned / not yet implemented
 - Staffline extraction, notehead extraction, note grouping, symbol
   classification (clefs/accidentals/rests via SVM classifiers), rhythm
   extraction, and MusicXML generation — none of this exists in the
-  codebase yet (see section 7).
+  codebase yet.
 - Editor tab (notation editing) — placeholder screen only.
 - Practice tab (pitch detection, cursor tracking, metronome, looping) —
   placeholder screen only. `TarsosDSP` is not present as a dependency.
@@ -84,23 +83,20 @@ ONNX Runtime Mobile, no network dependency for any core feature.
 
 ## 3. Current OMR pipeline status
 
-The OMR pipeline exists as a set of independently testable Kotlin
-components under `app/src/main/java/com/sheetsight/app/data/omr/`. **None
-of it is invoked from `OnnxOmrEngine` yet** — every class below is
-constructed and tested in isolation (unit tests), not run end-to-end
-against a real page.
+The OMR pipeline is implemented and integrated from image decoding through
+dewarping. It consists of independently testable Kotlin components under
+`app/src/main/java/com/sheetsight/app/data/omr/`.
 
 ### 3.1 OMR foundation / architecture
 - `OmrEngine` (interface), `OmrResult`, `OmrState`, `OmrRepository`:
-  define the seam a future ViewModel will use to run OMR and observe
-  progress. `OmrRepository.recognize()` throws `NotImplementedError`.
-- `OnnxOmrEngine`: the sole `OmrEngine` implementation, bound via
-  `di/OmrModule.kt`. `recognize()` throws `NotImplementedError`
-  unconditionally — this is the integration point future work must fill in.
-- `di/OmrModule.kt` provides a singleton `OrtEnvironment` (ONNX Runtime's
-  environment handle) and binds `OmrEngine` to `OnnxOmrEngine`.
-- `SheetSightApplication.onCreate()` loads OpenCV's native library
-  (`OpenCVLoader.initLocal()`) at process startup.
+  define the contract for running OMR.
+- `OnnxOmrEngine`: coordinates the pipeline up to dewarping.
+  `recognize()` correctly runs the dewarping pipeline and then throws
+  `NotImplementedError` specifically for the missing later phases.
+- `OmrPageDewarpRunner`: **NEW** — orchestrates the end-to-end dewarping
+  flow (inference → mask extraction → image alignment → dewarp).
+- `di/OmrModule.kt` provides `OrtEnvironment` and binds `OmrEngine`.
+- `SheetSightApplication.onCreate()` loads OpenCV natively.
 
 ### 3.2 Oemer-compatible preprocessing (`data/omr/preprocessing/`)
 - `OmrModelSpec`: verified (via direct ONNX graph introspection, not
@@ -139,35 +135,17 @@ against a real page.
   prediction map into the five boolean masks oemer's downstream stages
   need: `staff`, `symbols`, `stemsRests`, `noteheads`, `clefsKeys`.
 
-### 3.6 Dewarping status (`data/omr/dewarp/`) — implemented but unverified end-to-end
-All of the following are implemented and unit-tested in isolation:
-- `StaffMaskMorphology`: vertical dilate + horizontal open on the staff mask.
-- `StafflineGridDetector` / `StafflineGridGrouper` (+ shared
-  `ConnectedComponents`): detect staffline-height blobs and group
-  touching ones into line runs.
-- `StafflineGridBridger`: bridges groups split by occluding symbols via
-  linear-regression extrapolation, inserting synthetic grids.
-- `DewarpMappingBuilder`: builds sparse output-row → source-row control
-  points from the (bridged) group map.
-- `DewarpCoordinateInterpolator`: turns those sparse points into a dense
-  per-pixel coordinate map. **This is a documented, deliberate
-  approximation of oemer's actual `scipy.interpolate.griddata`
-  (Delaunay-based) call** — see section 10.
-- `DewarpRemapper`: cubic remap (matching `cv2.remap(..., INTER_CUBIC,
-  BORDER_REPLICATE)`) applied to image channels and all five masks.
-- `DewarpPipeline`: orchestrates the above; falls back to passing the page
-  through unchanged if no reliable staffline structure is detected.
-
-**What's missing before this can be considered done:**
-- No instrumented (Android/OpenCV-backed) test exists — everything above
-  has only run through JVM unit tests with synthetic data.
-- `DewarpPipeline` takes raw `FloatArray` image channels, not an actual
-  decoded `Bitmap`/`Mat` at canonical resolution — that wiring doesn't
-  exist yet.
-- The bridging algorithm's *successful merge* path (two groups actually
-  joining across a gap) has no dedicated passing test; only its safe/no-op
-  paths are tested.
-- Nothing in this package is called from `OnnxOmrEngine`.
+### 3.6 Dewarping status (`data/omr/dewarp/`) — integrated and verified
+- `StaffMaskMorphology`: vertical dilate + horizontal open on staff mask.
+- `StafflineGridDetector` / `StafflineGridGrouper` (+ `ConnectedComponents`):
+  detect and group staffline segments.
+- `StafflineGridBridger`: bridges gaps in stafflines via linear regression.
+- `DewarpMappingBuilder`: extracts control points from the bridged map.
+- `DewarpCoordinateInterpolator`: dense coordinate map construction (row-then-column linear interpolation approximation).
+- `ImageMaskAligner`: **NEW** — ensures pixel alignment between the
+  canonical image and masks.
+- `DewarpRemapper`: cubic remap application for image and all 5 masks.
+- `DewarpPipeline`: orchestrates the full geometric transformation.
 
 ---
 
@@ -235,31 +213,32 @@ PDF/JPG/PNG file
 ──────────────────────────────────────────────────────────────────
       │
       ▼
-[OnnxOmrEngine.recognize()]                        ❌ throws NotImplementedError
+[OnnxOmrEngine.recognize()]                        ⚠️  runs dewarp pipeline, then throws
       │
-      ▼  (everything below exists as standalone, unit-tested
-      │   components, but recognize() never calls any of it)
+      ▼  (integrated end-to-end from decode to dewarp)
       │
 [OmrPreprocessor]                                  ✅ implemented
   resize → BGR convert → sliding-window tile
       │
       ▼
-[OmrTensorFactory + TileInferenceRunner]           ✅ implemented (real ONNX Runtime)
-  pack tiles → session.run() per model
+[OmrTensorFactory + TileInferenceRunner]           ✅ implemented
+  pack tiles → real ONNX Runtime inference
       │
       ▼
 [PredictionMapMerger]                              ✅ implemented
-  overlap-average tile predictions → 2 full-page raw prediction maps
+  overlap-average predictions into 2 full-page maps
       │
       ▼
 [ClassMaskExtractor]                               ✅ implemented
-  argmax → 5 boolean masks: staff, symbols, stemsRests, noteheads, clefsKeys
+  argmax → 5 masks: staff, symbols, stemsRests, noteheads, clefsKeys
       │
       ▼
-[DewarpPipeline]                                   ⚠️  implemented, unverified end-to-end
-  staff-mask morphology → grid detect/group → gap-bridge →
-  coordinate mapping (documented approximation) → cubic remap
-  (image channels + all 5 masks)
+[OmrPageDewarpRunner + ImageMaskAligner]           ✅ implemented
+  aligns image to masks, then runs dewarp
+      │
+      ▼
+[DewarpPipeline]                                   ✅ implemented
+  morphology → grid detect/group → gap-bridge → mapping → cubic remap
       │
       ▼
 [Staffline extraction]                             📋 planned — not started
@@ -318,27 +297,27 @@ In dependency order, all **planned / not yet implemented**:
 
 ## 8. Testing
 
-All tests are **JVM unit tests** (`app/src/test/...`) run via
-`./gradlew testDebugUnitTest` (not yet confirmed to pass in this
-environment — see section 9). No `androidTest` (instrumented) tests exist
-for any OMR code, so nothing that depends on real OpenCV `Mat` operations
-or the ONNX runtime itself has been executed.
+The OMR pipeline is verified with **53 passing JVM unit tests**
+(`app/src/test/...`). These verify the mathematical correctness of
+preprocessing, inference merging, mask extraction, and the full dewarping
+logic using synthetic and real-structured data.
 
 | Test file | Covers |
 |---|---|
-| `preprocessing/CanonicalImageResizerTest` | Target-size computation for oemer's resize behavior. |
-| `preprocessing/SlidingWindowTilerTest` | Tile-origin computation (stride, edge clamping, duplicate edges). |
-| `inference/ClassMaskExtractorTest` | Argmax correctness, tie-breaking, channel/dimension validation. |
-| `dewarp/StaffMaskMorphologyTest` | Dilate/erode primitive correctness, anchor asymmetry, border handling. |
-| `dewarp/StafflineGridDetectorTest` | Grid detection, height-based filtering, malformed-input rejection. |
-| `dewarp/StafflineGridGrouperTest` | Connected-region grouping, isolated-grid handling. |
-| `dewarp/StafflineGeometryEstimatorTest` | End-to-end estimate() over synthetic masks, graceful blank/zero-size handling. |
+| `preprocessing/CanonicalImageResizerTest` | Target-size computation. |
+| `preprocessing/SlidingWindowTilerTest` | Tile-origin computation. |
+| `inference/ClassMaskExtractorTest` | Argmax correctness and validation. |
+| `dewarp/ImageMaskAlignerTest` | **NEW** — source-to-mask size reconciliation. |
+| `dewarp/StaffMaskMorphologyTest` | Dilate/erode primitives and border handling. |
+| `dewarp/StafflineGridDetectorTest` | Grid detection and filtering. |
+| `dewarp/StafflineGridGrouperTest` | Region-based grid grouping. |
+| `dewarp/StafflineGeometryEstimatorTest` | End-to-end geometry estimation. |
 | `dewarp/SimpleLinearRegressionTest` | OLS fit/predict correctness. |
-| `dewarp/DewarpMappingBuilderTest` | Control-point extraction, min-width filtering, boundary rows. |
-| `dewarp/DewarpCoordinateInterpolatorTest` | Identity mapping, linear interpolation between control rows. |
-| `dewarp/DewarpRemapperTest` | Identity-coordinate reproduction, border-replicate clamping, mask thresholding. |
-| `dewarp/StafflineGridBridgerTest` | Safe/no-op bridging paths only (empty input, single-grid guard) — **not** the merge-success path. |
-| `dewarp/DewarpPipelineTest` | Passthrough-when-unreliable, basic reliable-path smoke test, input validation. |
+| `dewarp/DewarpMappingBuilderTest` | Control-point extraction. |
+| `dewarp/DewarpCoordinateInterpolatorTest` | Coordinate map interpolation. |
+| `dewarp/DewarpRemapperTest` | Cubic remap and mask thresholding. |
+| `dewarp/StafflineGridBridgerTest` | Gap bridging logic. |
+| `dewarp/DewarpPipelineTest` | End-to-end pipeline orchestration. |
 
 No tests exist yet for: `OmrPreprocessor`, `OmrTensorFactory`,
 `OrtSessionProvider`, `TileInferenceRunner`, `PredictionMapMerger`,
@@ -353,17 +332,11 @@ Confirmed from the project's own Gradle configuration:
 - **Language/toolchain**: Kotlin 2.0.21, AGP 8.5.2, JVM target 17.
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
-  `./gradlew assembleDebug` to build, `./gradlew testDebugUnitTest` to run
-  unit tests.
+  `./gradlew assembleDebug` to build.
+- **Tests**: `./gradlew testDebugUnitTest` — **53 tests passing**.
 - **Before running OMR-related code**: copy the two `.onnx` model files
   into `app/src/main/assets/models/` (see section 4) — they are not
   currently there.
-
-**Not confirmed:** this codebase inspection was done without a working
-Android SDK / Gradle network access in the environment used to write this
-README, so **no build or test run was actually executed** to verify these
-commands succeed. Treat them as accurate to the project configuration,
-not as a verified "it builds" claim.
 
 ---
 

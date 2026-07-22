@@ -16,7 +16,7 @@ import javax.inject.Singleton
  * Holds no reference to [com.sheetsight.app.data.local.ScoreFileStorage] or
  * [com.sheetsight.app.domain.repository.ScoreRepository] yet; wiring a run's
  * result back into a [com.sheetsight.app.domain.model.Score]'s
- * `musicXmlPath` is part of the Phase 4.2 pipeline, not this scaffolding.
+ * `musicXmlPath` is part of a future phase's pipeline, not this class.
  */
 @Singleton
 class OmrRepository @Inject constructor(
@@ -29,12 +29,27 @@ class OmrRepository @Inject constructor(
     val state: StateFlow<OmrState> = _state.asStateFlow()
 
     /**
-     * Runs OMR on the image at [imagePath]. Not implemented until Phase
-     * 4.2 — no preprocessing or inference happens as of Phase 4.1.
+     * Runs OMR on the image at [imagePath], driving [state] through
+     * [OmrState.Recognizing] to [OmrState.Completed]/[OmrState.Failed].
+     * [OnnxOmrEngine.recognize] still can't produce a real [OmrResult] —
+     * see its KDoc — so today this always ends in [OmrState.Failed] and
+     * rethrows; [state] is updated *before* rethrowing so an observing
+     * caller sees a clean failure without needing to catch anything.
+     *
+     * Catches [Throwable], not [Exception]: [NotImplementedError] (what
+     * [OnnxOmrEngine.recognize] currently throws) is a [kotlin.Error],
+     * which `catch (e: Exception)` would silently miss, leaving [state]
+     * stuck on [OmrState.Recognizing] forever.
      */
     suspend fun recognize(imagePath: String): OmrResult {
-        throw NotImplementedError(
-            "OmrRepository.recognize() is not implemented until Phase 4.2."
-        )
+        _state.value = OmrState.Recognizing
+        return try {
+            val result = omrEngine.recognize(imagePath)
+            _state.value = OmrState.Completed(result)
+            result
+        } catch (t: Throwable) {
+            _state.value = OmrState.Failed(t.message ?: "OMR failed for an unknown reason")
+            throw t
+        }
     }
 }

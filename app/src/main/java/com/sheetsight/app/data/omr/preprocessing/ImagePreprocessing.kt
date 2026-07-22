@@ -34,4 +34,33 @@ object ImagePreprocessing {
         rgba.release()
         return bgr
     }
+
+    /**
+     * De-interleaves an 8-bit-per-channel [mat] into one row-major
+     * `width*height` [FloatArray] per channel (values 0f–255f) — the shape
+     * [com.sheetsight.app.data.omr.dewarp.DewarpPipeline] expects for the
+     * original image. Reads rows the same way [org.opencv.core.Mat]-backed
+     * tensor packing already does elsewhere in this package (see
+     * `OmrTensorFactory.createInputTensor`), just de-interleaved instead of
+     * copied raw.
+     */
+    fun extractChannels(mat: Mat): List<FloatArray> {
+        val width = mat.width()
+        val height = mat.height()
+        val channelCount = mat.channels()
+        val row = ByteArray(width * channelCount)
+        val channels = List(channelCount) { FloatArray(width * height) }
+        for (y in 0 until height) {
+            mat.get(y, 0, row)
+            val rowBase = y * width
+            for (x in 0 until width) {
+                val pixelBase = x * channelCount
+                for (c in 0 until channelCount) {
+                    // Bytes are signed on the JVM; Mat pixel values are 0-255.
+                    channels[c][rowBase + x] = (row[pixelBase + c].toInt() and 0xFF).toFloat()
+                }
+            }
+        }
+        return channels
+    }
 }

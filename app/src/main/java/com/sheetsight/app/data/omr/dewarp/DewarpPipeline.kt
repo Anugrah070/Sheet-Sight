@@ -28,10 +28,11 @@ object DewarpPipeline {
      * per-channel pixel buffers, each [OmrClassMasks.width] x
      * [OmrClassMasks.height], row-major, one `FloatArray` per channel —
      * matching `ete.py`'s own `for i in range(image.shape[2])` loop.
-     * Wiring this up to an actual decoded bitmap at the canonical
-     * resolution is future integration work, same as
-     * [com.sheetsight.app.data.omr.inference.OmrPageInferenceRunner]
-     * remains unwired to [com.sheetsight.app.data.omr.OnnxOmrEngine].
+     * [OmrPageDewarpRunner] wires this up to a real decoded page (via
+     * [com.sheetsight.app.data.omr.inference.OmrPageInferenceRunner]'s
+     * canonical image + [com.sheetsight.app.data.omr.inference.ClassMaskExtractor]'s
+     * masks); this function itself stays decoupled from where its inputs
+     * came from. Still unwired to [com.sheetsight.app.data.omr.OnnxOmrEngine].
      */
     fun run(imageChannels: List<FloatArray>, masks: OmrClassMasks): DewarpedPage {
         val width = masks.width

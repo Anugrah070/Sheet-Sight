@@ -45,11 +45,13 @@ class OmrPreprocessor @Inject constructor() {
         }
         val canonicalWidth = resized.width()
         val canonicalHeight = resized.height()
+        val canonicalImageChannels = ImagePreprocessing.extractChannels(resized)
         resized.release()
 
         return OmrPreprocessingResult(
             canonicalWidth = canonicalWidth,
             canonicalHeight = canonicalHeight,
+            canonicalImageChannels = canonicalImageChannels,
             tilesByModel = tilesByModel
         )
     }
@@ -59,6 +61,13 @@ class OmrPreprocessor @Inject constructor() {
  * @property canonicalWidth Width of the resized page tiles were cut from
  *   — needed by Phase 4.3 to allocate the merged per-model prediction map.
  * @property canonicalHeight Height of the same resized page.
+ * @property canonicalImageChannels The resized page's own pixel data (BGR,
+ *   oemer's byte order — see [ImagePreprocessing]), as one row-major
+ *   `canonicalWidth*canonicalHeight` [FloatArray] per channel. Unlike
+ *   [tilesByModel], this isn't native-backed and needs no [ImageTile.release]
+ *   — it's a plain copy taken before the resized `Mat` is released. This is
+ *   the "original image" [com.sheetsight.app.data.omr.dewarp.DewarpPipeline]
+ *   remaps alongside the five class masks.
  * @property tilesByModel Every tile for each [OmrModelSpec], in the same
  *   row-major (y outer, x inner) order oemer's `inference()` produces
  *   them — see [SlidingWindowTiler.computeOrigins].
@@ -66,5 +75,6 @@ class OmrPreprocessor @Inject constructor() {
 data class OmrPreprocessingResult(
     val canonicalWidth: Int,
     val canonicalHeight: Int,
+    val canonicalImageChannels: List<FloatArray>,
     val tilesByModel: Map<OmrModelSpec, List<ImageTile>>
 )

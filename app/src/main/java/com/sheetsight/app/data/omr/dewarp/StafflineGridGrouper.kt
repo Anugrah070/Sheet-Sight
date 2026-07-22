@@ -34,7 +34,7 @@ object StafflineGridGrouper {
             return GridGroupingResult(groupMap = IntArray(width * height) { -1 }, groups = emptyList())
         }
 
-        val regionIds = labelConnectedRegions(detection.gridMap, width, height)
+        val regionIds = ConnectedComponents.label(detection.gridMap, width, height)
         val rawGroups = buildRawGroups(detection, regionIds)
         val sorted = rawGroups.sortedByDescending { it.right - it.left }
 
@@ -85,46 +85,6 @@ object StafflineGridGrouper {
                 right = maxOf(lowest.right, highest.right),
                 bottom = maxOf(lowest.bottom, highest.bottom)
             )
-        }
-    }
-
-    /**
-     * 4-connected component labeling over "gridMap[i] != -1" (foreground),
-     * mirroring `scipy.ndimage.label`'s default connectivity. Returns
-     * region ids 1..N; 0 marks background (no grid).
-     */
-    private fun labelConnectedRegions(gridMap: IntArray, width: Int, height: Int): IntArray {
-        val regions = IntArray(gridMap.size)
-        var nextRegion = 0
-        val stack = ArrayDeque<Int>()
-        for (start in gridMap.indices) {
-            if (gridMap[start] == -1 || regions[start] != 0) continue
-            nextRegion++
-            regions[start] = nextRegion
-            stack.addLast(start)
-            while (stack.isNotEmpty()) {
-                val current = stack.removeLast()
-                val cx = current % width
-                val cy = current / width
-                if (cx > 0) tryVisit(current - 1, gridMap, regions, nextRegion, stack)
-                if (cx < width - 1) tryVisit(current + 1, gridMap, regions, nextRegion, stack)
-                if (cy > 0) tryVisit(current - width, gridMap, regions, nextRegion, stack)
-                if (cy < height - 1) tryVisit(current + width, gridMap, regions, nextRegion, stack)
-            }
-        }
-        return regions
-    }
-
-    private fun tryVisit(
-        index: Int,
-        gridMap: IntArray,
-        regions: IntArray,
-        regionId: Int,
-        stack: ArrayDeque<Int>
-    ) {
-        if (gridMap[index] != -1 && regions[index] == 0) {
-            regions[index] = regionId
-            stack.addLast(index)
         }
     }
 }

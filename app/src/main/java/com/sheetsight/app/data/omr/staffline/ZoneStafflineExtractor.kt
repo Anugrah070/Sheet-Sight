@@ -29,19 +29,26 @@ import kotlin.math.sqrt
  *  5. **Pixel assignment.** Each of the five peaks in a valid group
  *     collects the zone's foreground pixels whose nearest peak center is
  *     that peak and lies within [maxGap], forming a [Staffline]; lines
- *     are labelled FIRST..FIFTH bottom-to-top, matching oemer's LineLabel.
+ *     are labelled FIRST..FIFTH top-to-bottom, matching oemer's LineLabel
+ *     (FIRST = smallest y / topmost line, FIFTH = largest y / bottommost).
  *
  * **Fidelity note.** Steps 1–3 are exact and golden-tested. Step 4's
  * rules and constants ([MAX_PEAK_NORM], the 0.2 gap fraction, the 1.5×
  * grouping factor, the head/tail-five selection) and step 5's [maxGap]
  * reproduce the documented Phase-4.6B analysis of oemer 0.1.8, but were
  * **not** line-checked against the actual `staffline_extraction.py`
- * source (it was not retrievable in the build environment). They are
- * surfaced here as named constants precisely so they can be reconciled
- * against the source before this stage is trusted end-to-end. The
- * `norm > 15` rejection in particular is a near-no-op on a z-scored
- * signal (15 standard deviations); confirm its exact quantity and
- * direction against the source.
+ * source (it was not retrievable in the build environment at the time
+ * of the original port). They are surfaced here as named constants
+ * precisely so they can be reconciled against the source before this
+ * stage is trusted end-to-end. The `norm > 15` rejection in particular
+ * is a near-no-op on a z-scored signal (15 standard deviations); confirm
+ * its exact quantity and direction against the source.
+ *
+ * The FIRST/FIFTH label direction *has* since been verified directly
+ * against the real oemer 0.1.8 wheel (Phase 4.6E-A analysis): oemer sorts
+ * lines ascending by `y_center` before assigning `LineLabel.FIRST..FIFTH`,
+ * so FIRST is the topmost line. The step-5 assignment below was corrected
+ * to match (previously it labelled bottom-to-top).
  */
 object ZoneStafflineExtractor {
 
@@ -189,10 +196,10 @@ object ZoneStafflineExtractor {
         val pointsPerCenter = buckets.mapIndexed { i, pts ->
             pts.ifEmpty { listOf(StafflinePoint(zoneLeft, sortedCenters[i])) }
         }
-        // oemer's LineLabel is bottom-to-top: FIRST = bottom line (largest y), FIFTH = top.
+        // oemer's LineLabel is top-to-bottom: FIRST = top line (smallest y), FIFTH = bottom.
         val positions = StafflinePosition.values()
         val lines = pointsPerCenter
-            .sortedByDescending { pts -> pts.sumOf { it.y }.toDouble() / pts.size } // bottom (largest y) first
+            .sortedBy { pts -> pts.sumOf { it.y }.toDouble() / pts.size } // top (smallest y) first
             .mapIndexed { i, pts -> Staffline(positions[i], pts) }
         return ZoneStaff(lines)
     }

@@ -50,7 +50,7 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   qualified coroutine dispatchers, and the OMR module.
 - **OMR pipeline integration**: The pipeline is wired from image decode
   through dewarping via `OnnxOmrEngine` → `OmrPageDewarpRunner`.
-- **OMR pipeline components (verified with 64 passing unit tests)**:
+- **OMR pipeline components (verified with 65 passing unit tests)**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
@@ -152,7 +152,8 @@ dewarping. It consists of independently testable Kotlin components under
   verified bit-for-bit against scipy 1.17.1 for height/distance/prominence.
 - `ZoneStafflineExtractor`: **NEW** — orchestrates per-zone extraction:
   z-scored row density → peak detection → 5-line grouping → pixel
-  assignment.
+  assignment. **Labeling follows oemer's top-to-bottom convention**
+  (FIRST=topmost line).
 - `Staffline`: **NEW** — data model for a single line with lazy geometry
   (y-center, slope via OLS).
 - `ZoneStaff`: **NEW** — a group of exactly five `Staffline`s within a
@@ -305,7 +306,7 @@ In dependency order, all **planned / not yet implemented**:
 
 ## 8. Testing
 
-The OMR pipeline is verified with **64 passing JVM unit tests**
+The OMR pipeline is verified with **65 passing JVM unit tests**
 (`app/src/test/...`). These verify the mathematical correctness of
 preprocessing, inference merging, mask extraction, full dewarping logic,
 and peak detection/staff extraction using synthetic and real-structured
@@ -344,7 +345,7 @@ Confirmed from the project's own Gradle configuration:
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — **64 tests passing**.
+- **Tests**: `./gradlew testDebugUnitTest` — **65 tests passing**.
 - **Before running OMR-related code**: copy the two `.onnx` model files
   into `app/src/main/assets/models/` (see section 4) — they are not
   currently there.

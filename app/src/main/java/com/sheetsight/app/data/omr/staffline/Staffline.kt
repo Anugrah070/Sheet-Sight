@@ -4,9 +4,13 @@ import com.sheetsight.app.data.omr.dewarp.SimpleLinearRegression
 
 /**
  * Position of a line within its five-line staff, matching oemer's
- * `LineLabel`: FIRST is the **bottom** line (largest y in image
- * coordinates) and FIFTH is the **top** line (smallest y). oemer stores a
- * staff's lines bottom-to-top, so [ZoneStaff.lines]`[0]` is FIRST/bottom.
+ * `LineLabel`: FIRST is the **top** line (smallest y in image
+ * coordinates) and FIFTH is the **bottom** line (largest y). Confirmed
+ * against the oemer 0.1.8 source (`staffline_extraction.py::extract_line`):
+ * lines are sorted ascending by `y_center` (`Line.__lt__`), and labels are
+ * assigned `FIRST..FIFTH` in that ascending-y iteration order — i.e.
+ * top-to-bottom. oemer stores a staff's lines top-to-bottom, so
+ * [ZoneStaff.lines]`[0]` is FIRST/top.
  */
 enum class StafflinePosition { FIRST, SECOND, THIRD, FOURTH, FIFTH }
 

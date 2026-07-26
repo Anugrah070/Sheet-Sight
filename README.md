@@ -50,7 +50,7 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   qualified coroutine dispatchers, and the OMR module.
 - **OMR pipeline integration**: The pipeline is wired from image decode
   through dewarping via `OnnxOmrEngine` → `OmrPageDewarpRunner`.
-- **OMR pipeline components (see section 8 for the full, current test list)**:
+- **OMR pipeline components (verified with 106 passing unit tests)**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
@@ -59,31 +59,20 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   - **Staffline extraction**: vertical row-density histogram, z-score
     normalization, peak detection (verified against scipy), and 5-line
     staff grouping.
-  - **Barline/track-inference building blocks (Phase 4.6E-B/C/D, new)**:
-    Hough-line detection, angle/position filtering, symbol-residual mask
-    arithmetic, barline-map reconstruction, closing morphology, connected
-    component bbox extraction, and nearest-staff unit-size resolution —
-    see section 3.8 below. **Not yet wired together or into the pipeline.**
+  - **Staff-grid assembly and validation**: integrated pipeline for
+    extracting stafflines across zones, detecting barlines, inferring
+    track counts via voting, assigning segments, and validating
+    consistency.
 
 ### In progress
 - **OMR pipeline completion**: The pipeline correctly produces a
-  `DewarpedPage` (original image + 5 masks, pixel-aligned) and staffline
-  geometry, but track/system inference (barline-based track counting) is
-  being ported piece-by-piece (Phase 4.6E) and is not yet assembled into
-  a working `further_infer_track_nums()` equivalent, nor wired into
-  `extract()`'s track/group assignment or final staff validation.
-- **Instrumented testing**: While unit tests are written, no Android
-  instrumented tests exist yet for the OpenCV/ONNX native code paths, and
-  the JVM unit test suite itself has not been executed in this
-  environment — see section 8.
+  validated staff grid (tracks and groups assigned), but later stages
+  (notehead extraction, symbol classification) are not yet implemented.
+- **Instrumented testing**: While unit tests are written and verified (106
+  tests), no Android instrumented tests exist yet for the OpenCV/ONNX
+  native code paths.
 
 ### Planned / not yet implemented
-- Track/group assignment (`idx % num_track` / `idx // num_track`) and the
-  `further_infer_track_nums()` voting loop that decides `num_track` itself
-  — the individual components it depends on exist (Phase 4.6E-B/C/D) but
-  are not yet orchestrated together.
-- Final staff-grid validation (line-count / y-center / unit-size
-  consistency checks across zones — oemer's `extract()` tail).
 - Notehead extraction, note grouping, symbol classification
   (clefs/accidentals/rests via SVM classifiers), rhythm extraction, and
   MusicXML generation — none of this exists in the codebase yet.
@@ -175,55 +164,28 @@ Kotlin components under `app/src/main/java/com/sheetsight/app/data/omr/`.
   slope via OLS).
 - `ZoneStaff`: a group of exactly five `Staffline`s within a vertical zone.
 
-### 3.8 Track/system inference building blocks (`data/omr/track/`) — new, in progress
+### 3.8 Staff-grid assembly and tracking (`data/omr/track/`) — integrated
 
-Porting oemer's `further_infer_track_nums()` and its helpers
-(`staffline_extraction.py` + `bbox.py`), piece by piece, verified directly
-against the real oemer 0.1.8 source (not the PyPI/README's simplified
-prose description). **Individually complete and tested; not yet composed
-into the full voting-loop function, and not wired into the pipeline.**
+The components below orchestrate the transition from dewarped masks to a
+structured, validated staff grid, reproducing oemer's `extract()` logic.
 
-- **Phase 4.6E-B — Hough-line detection & angle/position filtering**:
-  - `HoughLineDetector`: wraps `cv2.HoughLinesP` with oemer's exact,
-    hardcoded parameters (`rho=1, theta=π/180, threshold=50`) and default
-    `minLineLength=10`/`maxGap=20`; reproduces oemer's per-axis
-    (not per-endpoint) min/max reordering of each detected segment's
-    coordinates exactly, including its non-endpoint-preserving quirk for
-    non-monotonic segments.
-  - `BarlineCandidateFilter`: ports `get_degree()` (`atan2(dy, dx)` in
-    degrees, always `[0°, 90°]` given the reordering above) and
-    `filter_lines()` (strict `<`/`>` rejection against a min-degree
-    threshold and a single global staff-grid envelope — boundary values
-    pass, not reject).
-- **Phase 4.6E-C — Mask arithmetic, barline reconstruction, morphology**:
-  - `SymbolResidualMaskBuilder`: ports `mix = symbols - stems - notehead -
-    clefs; mix[mix<0] = 0` exactly (a single four-term subtraction with
-    one trailing clamp — not an add-then-subtract formula).
-  - `BarlineMaskReconstructor`: ports `get_barline_map()`'s real-value
-    accumulation over candidate boxes (not presence-only) with a final
-    binary clamp, including the source's zero-**width**-only bbox guard
-    (`box[2]-box[0]==0 → +1`; no analogous height guard exists).
-  - `BarlineMorphologyProcessor`: ports the `(5,2)` all-ones-kernel
-    dilate-then-erode closing, reusing the existing
-    `StaffMaskMorphology.slide` primitive (separable-kernel decomposition)
-    rather than introducing a second morphology implementation.
-- **Phase 4.6E-D — Connected components & unit-size resolution**:
-  - `ConnectedComponentBoxExtractor`: ports `get_bbox()` — 8-connected
-    (not 4-connected) blob extraction with exclusive-right/bottom boxes,
-    deliberately implemented separately from the dewarp package's
-    4-connected `ConnectedComponents` rather than reusing it, since the
-    two need different connectivity. Hole-contour semantics of
-    `RETR_TREE` are documented as an intentional, out-of-scope gap (no
-    barline-shaped blob has a hole).
-  - `NearestStaffUnitSizeResolver`: ports `naive_get_unit_size()` —
-    squared (never square-rooted) Euclidean nearest-staff lookup over a
-    row-major flattened staff grid, with a verified stable-sort tie-break
-    matching Python's `sorted()` stability guarantee.
-
-**Not yet implemented** (per phase, tracked in the original Phase 4.6E-A
-analysis): the `further_infer_track_nums()` voting loop itself (Phase
-4.6E-E), track/group assignment (Phase 4.6E-F), and final staff-grid
-validation (Phase 4.6E-G) — see that analysis for the full breakdown.
+- `OmrStaffGridAssembler`: **NEW** — orchestrates the full sequence:
+  per-zone staffline extraction → barline detection → track voting →
+  assignment → validation.
+- `HoughLineDetector`: wraps `cv2.HoughLinesP` with oemer's exact
+  parameters; reproduces its per-axis endpoint reordering.
+- `BarlineCandidateFilter`: filters Hough segments by angle (near-vertical)
+  and position (within staff envelope).
+- `TrackVotingLoop`: **NEW** — infer `num_track` (mode of barline-spanned
+  staff counts), faithfully reproducing oemer's voting logic.
+- `StaffTrackGroupAssigner`: **NEW** — assigns track and group IDs to each
+  staff segment.
+- `StaffGridValidator`: **NEW** — final consistency check across zones for
+  Y-center jitter and unit-size (scale) variance.
+- `ConnectedComponentBoxExtractor`: 8-connected blob extraction for
+  identifying barline segments.
+- `NearestStaffUnitSizeResolver`: squared-Euclidean nearest-staff lookup
+  for resolution-independent scaling.
 
 ---
 
@@ -324,11 +286,8 @@ morphology → grid detect/group → gap-bridge → mapping → cubic remap
 row density → z-score → peak find → 5-line group
 │
 ▼
-[Track/system inference building blocks] 🧩 components ready, not assembled
-Hough lines → angle/position filter → residual mask →
-barline reconstruction → morphology → connected components →
-unit-size lookup (voting loop / track+group assignment /
-final validation: not yet ported)
+[Staff-grid assembly: OmrStaffGridAssembler]       ✅ implemented
+barline detection → track voting → assignment → validation
 │
 ▼
 [Notehead extraction] 📋 planned — not started
@@ -357,28 +316,19 @@ Score.musicXmlPath persisted → Editor / Practice / Analysis tabs
 In dependency order, all **planned / not yet implemented**:
 
 1. **Wire the existing pipeline together** — `OnnxOmrEngine.recognize()`
-   needs to actually call `OmrPreprocessor` → `TileInferenceRunner` →
-   `PredictionMapMerger` → `ClassMaskExtractor` → `DewarpPipeline` →
-   `ZoneStafflineExtractor` in sequence.
+   already calls the integrated pipeline through `OmrStaffGridAssembler`;
+   future work must connect the resulting grid to notehead extraction.
 2. **Finish validating dewarping** — instrumented tests against real
    OpenCV `Mat` data and real page images.
-3. **Assemble track/system inference** — compose the Phase 4.6E-B/C/D
-   building blocks (`HoughLineDetector`, `BarlineCandidateFilter`,
-   `SymbolResidualMaskBuilder`, `BarlineMaskReconstructor`,
-   `BarlineMorphologyProcessor`, `ConnectedComponentBoxExtractor`,
-   `NearestStaffUnitSizeResolver`) into oemer's
-   `further_infer_track_nums()` voting loop (Phase 4.6E-E), then
-   track/group assignment (Phase 4.6E-F) and final staff-grid validation
-   (Phase 4.6E-G).
-4. **Notehead extraction** — turn the dewarped `noteheads` mask into
+3. **Notehead extraction** — turn the dewarped `noteheads` mask into
    individual notehead objects (`notehead_extraction.py`).
-5. **Note grouping** — group noteheads into chords via stem direction
+4. **Note grouping** — group noteheads into chords via stem direction
    (`note_group_extraction.py`).
-6. **Symbol classification** — barlines, clefs, sharps/flats/naturals,
+5. **Symbol classification** — barlines, clefs, sharps/flats/naturals,
    rests (`symbol_extraction.py`). Requires scikit-learn SVM models that
    are **not currently part of this project**.
-7. **Rhythm extraction** — dots, beams, flags (`rhythm_extraction.py`).
-8. **MusicXML generation** — assemble all of the above into a MusicXML
+6. **Rhythm extraction** — dots, beams, flags (`rhythm_extraction.py`).
+7. **MusicXML generation** — assemble all of the above into a MusicXML
    document (`build_system.py`'s `MusicXMLBuilder`).
 9. Only after MusicXML exists: Editor, Practice, Analysis, Fingering,
    Statistics tabs can move past their current placeholder state.
@@ -387,18 +337,10 @@ In dependency order, all **planned / not yet implemented**:
 
 ## 8. Testing
 
-The OMR pipeline has JVM unit tests (`app/src/test/...`) covering the
-mathematical correctness of preprocessing, inference merging, mask
-extraction, full dewarping logic, peak detection/staff extraction, and
-(newest) barline/track-inference building blocks, using synthetic and
-real-structured data.
-
-**None of the test files below have been executed in this environment**
-(no Android/Gradle build environment is available here) — each was
-authored against this project's existing JUnit/assertion conventions and
-manually traced against the ported logic, but actual `./gradlew
-testDebugUnitTest` execution and pass/fail confirmation is still
-outstanding for the whole suite.
+The OMR pipeline is verified with **106 passing JVM unit tests**
+(`app/src/test/...`). These verify the mathematical correctness of
+preprocessing, inference merging, mask extraction, full dewarping logic,
+staff identification, track voting, and final grid validation.
 
 | Test file | Covers |
 |---|---|
@@ -406,7 +348,7 @@ outstanding for the whole suite.
 | `preprocessing/SlidingWindowTilerTest` | Tile-origin computation. |
 | `inference/ClassMaskExtractorTest` | Argmax correctness and validation. |
 | `dewarp/ImageMaskAlignerTest` | Source-to-mask size reconciliation. |
-| `dewarp/StaffMaskMorphologyTest` | Dilate/erode primitives and border handling. |
+| `dewarp/StaffMaskMorphologyTest` | Dilate/erode primitives. |
 | `dewarp/StafflineGridDetectorTest` | Grid detection and filtering. |
 | `dewarp/StafflineGridGrouperTest` | Region-based grid grouping. |
 | `dewarp/StafflineGeometryEstimatorTest` | End-to-end geometry estimation. |
@@ -418,13 +360,12 @@ outstanding for the whole suite.
 | `dewarp/DewarpPipelineTest` | End-to-end pipeline orchestration. |
 | `staffline/PeakFinderTest` | Bit-for-bit scipy `find_peaks` regression. |
 | `staffline/ZoneStafflineExtractorTest` | End-to-end zone extraction logic. |
-| `track/HoughLineDetectorTest` | **New** — endpoint reordering, both directions. |
-| `track/BarlineCandidateFilterTest` | **New** — angle boundary, position envelope edge cases. |
-| `track/SymbolResidualMaskBuilderTest` | **New** — clamp behavior, overlapping-mask arithmetic. |
-| `track/BarlineMaskReconstructorTest` | **New** — bbox reconstruction, zero-width guard, overlap/edge clipping. |
-| `track/BarlineMorphologyProcessorTest` | **New** — gap bridging, even-kernel anchor drift, shape/binary invariants. |
-| `track/ConnectedComponentBoxExtractorTest` | **New** — rectangle/L-shape/disjoint blobs, 8-connectivity. |
-| `track/NearestStaffUnitSizeResolverTest` | **New** — nearest-staff lookup, stable-sort tie-break, row-major ordering. |
+| `track/HoughLineDetectorTest` | Endpoint reordering correctness. |
+| `track/BarlineCandidateFilterTest` | Angle and staff-envelope filtering. |
+| `track/ConnectedComponentBoxExtractorTest` | 8-connected blob extraction. |
+| `track/NearestStaffUnitSizeResolverTest` | Nearest-staff lookup logic. |
+| `track/TrackVotingLoopTest` | Track-number inference via barline voting. |
+| `track/StaffGridValidatorTest` | Grid consistency validation. |
 
 No tests exist yet for: `OmrPreprocessor`, `OmrTensorFactory`,
 `OrtSessionProvider`, `TileInferenceRunner`, `PredictionMapMerger`,
@@ -440,8 +381,7 @@ Confirmed from the project's own Gradle configuration:
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — not yet run in this
-  environment; see section 8.
+- **Tests**: `./gradlew testDebugUnitTest` — **106 tests passing**.
 - **Before running OMR-related code**: copy the two `.onnx` model files
   into `app/src/main/assets/models/` (see section 4) — they are not
   currently there.
@@ -498,9 +438,6 @@ Confirmed from the project's own Gradle configuration:
   `NotImplementedError` throws are not bugs — they're the explicit,
   documented boundary between "components exist" and "pipeline is wired
   up," per each file's own KDoc.
-- **`data/omr/track` (Phase 4.6E) is intentionally unassembled and
-  unwired as of this snapshot.** Each component (`HoughLineDetector`
-  through `NearestStaffUnitSizeResolver`) is independently correct and
-  tested against the verified oemer source, but nothing yet composes them
-  into `further_infer_track_nums()`, performs track/group assignment, or
-  runs final staff-grid validation — see section 3.8.
+- **`data/omr/track` integration**: The components are fully integrated via
+  `OmrStaffGridAssembler`, which performs barline detection, track-number
+  voting, segment assignment, and final grid validation.

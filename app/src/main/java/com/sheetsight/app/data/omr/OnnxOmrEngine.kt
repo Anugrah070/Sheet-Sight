@@ -3,6 +3,8 @@ package com.sheetsight.app.data.omr
 import android.graphics.BitmapFactory
 import com.sheetsight.app.data.omr.dewarp.DewarpedPage
 import com.sheetsight.app.data.omr.dewarp.OmrPageDewarpRunner
+import com.sheetsight.app.data.omr.track.OmrStaffGridAssembler
+import com.sheetsight.app.data.omr.track.ValidatedStaffGridResult
 import com.sheetsight.app.di.DefaultDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -33,7 +35,7 @@ import javax.inject.Singleton
 @Singleton
 class OnnxOmrEngine @Inject constructor(
     private val dewarpRunner: OmrPageDewarpRunner,
-    @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
+    @field:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : OmrEngine {
 
     /**
@@ -55,15 +57,26 @@ class OnnxOmrEngine @Inject constructor(
             bitmap.recycle()
         }
     }
+    suspend fun recognizeStaffGrid(imagePath: String): ValidatedStaffGridResult = withContext(defaultDispatcher) {
+        val page = recognizeDewarpedPage(imagePath)
+        try {
+            OmrStaffGridAssembler.assemble(page)
+        } catch (e: Exception) {
+            throw OmrPipelineException("Staff-grid assembly failed for '$imagePath'", e)
+        }
+    }
 
     override suspend fun recognize(imagePath: String): OmrResult {
-        recognizeDewarpedPage(imagePath) // runs and validates the real pipeline; result intentionally unused below
+        recognizeStaffGrid(imagePath) // runs and validates dewarp + staff-grid stages; result intentionally unused below
         throw NotImplementedError(
-            "Dewarping succeeded for '$imagePath', but staffline extraction, note detection, " +
-                    "symbol classification, rhythm extraction and MusicXML generation are not " +
-                    "implemented yet — OmrEngine.recognize() cannot produce an OmrResult until they are."
+            "Dewarping, staffline extraction, barline-based track voting, track/group assignment " +
+                    "and final staff-grid validation succeeded for '$imagePath', but notehead " +
+                    "extraction, symbol classification, rhythm extraction and MusicXML generation " +
+                    "are not implemented yet — OmrEngine.recognize() cannot produce an OmrResult " +
+                    "until they are."
         )
     }
+
 }
 
 /** Thrown when the OMR pipeline (image decode through dewarping) fails for a page. */

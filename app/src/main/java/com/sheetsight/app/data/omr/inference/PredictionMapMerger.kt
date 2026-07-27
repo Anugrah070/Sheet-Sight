@@ -52,6 +52,11 @@ object PredictionMapMerger {
         return OmrPredictionMap(width = width, height = height, channels = channels, data = sum)
     }
 
+    /**
+     * Reads each tile's flat, row-major `[y][x][channel]` [TilePrediction.values]
+     * — see that property's KDoc for the flattening convention this
+     * indexing must match.
+     */
     private fun accumulate(
         predictions: List<TilePrediction>,
         pageWidth: Int,
@@ -60,17 +65,19 @@ object PredictionMapMerger {
         count: IntArray
     ) {
         for (prediction in predictions) {
-            for (dy in 0 until prediction.windowSize) {
+            val tileWindowSize = prediction.windowSize
+            for (dy in 0 until tileWindowSize) {
                 val py = prediction.originY + dy
-                val row = prediction.values[dy]
-                for (dx in 0 until prediction.windowSize) {
+                val srcRowBase = dy * tileWindowSize * channels
+                val destRowBase = py * pageWidth
+                for (dx in 0 until tileWindowSize) {
                     val px = prediction.originX + dx
-                    val pixelIndex = py * pageWidth + px
+                    val pixelIndex = destRowBase + px
                     count[pixelIndex] += 1
-                    val base = pixelIndex * channels
-                    val values = row[dx]
+                    val destBase = pixelIndex * channels
+                    val srcBase = srcRowBase + dx * channels
                     for (c in 0 until channels) {
-                        sum[base + c] += values[c]
+                        sum[destBase + c] += prediction.values[srcBase + c]
                     }
                 }
             }

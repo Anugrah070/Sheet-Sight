@@ -14,6 +14,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sheetsight.app.ui.analysis.AnalysisScreen
+import com.sheetsight.app.ui.debug.OmrSmokeTestScreen
 import com.sheetsight.app.ui.editor.EditorScreen
 import com.sheetsight.app.ui.library.LibraryScreen
 import com.sheetsight.app.ui.practice.PracticeScreen
@@ -33,8 +34,9 @@ fun SheetSightNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Hide bottom bar for the Preview screen
-    val showBottomBar = currentRoute != Destination.Preview.ROUTE_PATTERN
+    // Hide bottom bar for the Preview screen and the developer-only OMR smoke test
+    val showBottomBar = currentRoute != Destination.Preview.ROUTE_PATTERN &&
+            currentRoute != Destination.OmrSmokeTest.route
 
     Scaffold(
         bottomBar = {
@@ -58,7 +60,11 @@ fun SheetSightNavHost(
             composable(Destination.Editor.route) { EditorScreen() }
             composable(Destination.Practice.route) { PracticeScreen() }
             composable(Destination.Analysis.route) { AnalysisScreen() }
-            composable(Destination.Settings.route) { SettingsScreen() }
+            composable(Destination.Settings.route) {
+                SettingsScreen(
+                    onOpenOmrSmokeTest = { navController.navigate(Destination.OmrSmokeTest.route) }
+                )
+            }
             composable(
                 route = Destination.Preview.ROUTE_PATTERN,
                 arguments = listOf(navArgument("scoreId") { type = NavType.LongType })
@@ -68,6 +74,9 @@ fun SheetSightNavHost(
                     scoreId = scoreId,
                     onBack = { navController.popBackStack() }
                 )
+            }
+            composable(Destination.OmrSmokeTest.route) {
+                OmrSmokeTestScreen(onBack = { navController.popBackStack() })
             }
         }
     }

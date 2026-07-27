@@ -35,7 +35,7 @@ import javax.inject.Singleton
 @Singleton
 class OnnxOmrEngine @Inject constructor(
     private val dewarpRunner: OmrPageDewarpRunner,
-    @field:DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
+    @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : OmrEngine {
 
     /**

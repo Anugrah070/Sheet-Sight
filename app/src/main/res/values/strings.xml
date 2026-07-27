@@ -8,6 +8,7 @@
     <string name="nav_analysis">Analysis</string>
     <string name="nav_settings">Settings</string>
     <string name="nav_preview">Preview</string>
+    <string name="nav_omr_smoke_test">OMR Smoke Test</string>
 
     <string name="preview_loading">Loading score…</string>
     <string name="preview_error">Couldn\'t load the score.</string>
@@ -53,4 +54,6 @@
     <string name="practice_placeholder">Practice mode will appear here.</string>
     <string name="analysis_placeholder">Music analysis overlays will appear here.</string>
     <string name="settings_placeholder">App settings will appear here.</string>
+    <string name="settings_developer_tools_heading">Developer tools</string>
+    <string name="settings_omr_smoke_test_entry">OMR Smoke Test (Debug)</string>
 </resources>

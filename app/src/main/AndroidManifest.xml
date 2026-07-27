@@ -16,6 +16,7 @@
         android:theme="@style/Theme.SheetSight"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
+        android:largeHeap="true"
         tools:targetApi="31">
 
         <activity

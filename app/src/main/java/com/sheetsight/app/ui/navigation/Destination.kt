@@ -3,6 +3,7 @@ package com.sheetsight.app.ui.navigation
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
@@ -32,6 +33,12 @@ sealed class Destination(
             const val ROUTE_PATTERN = "preview/{scoreId}"
         }
     }
+
+    /**
+     * Developer-only OMR smoke test (see [com.sheetsight.app.ui.debug.OmrSmokeTestScreen]).
+     * Reachable only from Settings, never shown as a bottom-bar tab.
+     */
+    data object OmrSmokeTest : Destination("omr_smoke_test", R.string.nav_omr_smoke_test, Icons.Filled.BugReport)
 
     companion object {
         val bottomBarDestinations = listOf(Library, Editor, Practice, Analysis, Settings)

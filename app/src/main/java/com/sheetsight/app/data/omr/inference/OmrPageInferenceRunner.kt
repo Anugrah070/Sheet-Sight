@@ -1,6 +1,9 @@
 package com.sheetsight.app.data.omr.inference
 
 import android.graphics.Bitmap
+import com.sheetsight.app.data.omr.OmrProgressCalculator
+import com.sheetsight.app.data.omr.OmrProgressListener
+import com.sheetsight.app.data.omr.OmrStage
 import com.sheetsight.app.data.omr.preprocessing.OmrModelSpec
 import com.sheetsight.app.data.omr.preprocessing.OmrPreprocessor
 import javax.inject.Inject
@@ -51,15 +54,27 @@ class OmrPageInferenceRunner @Inject constructor(
      * each immediately, and builds the five class masks — all without ever
      * holding both models' full float prediction maps simultaneously.
      */
-    fun run(page: Bitmap): OmrPageInferenceResult {
+    fun run(page: Bitmap, listener: OmrProgressListener? = null): OmrPageInferenceResult {
+        val calculator = listener?.let { OmrProgressCalculator(it) }
+
+        calculator?.updateStage(OmrStage.INPUT_DECODE, 1f)
+
+        calculator?.updateStage(OmrStage.PREPROCESSING, 0.1f)
         val preprocessed = preprocessor.preprocess(page)
+        calculator?.updateStage(OmrStage.PREPROCESSING, 1f)
+
+        calculator?.updateStage(OmrStage.TILING, 1f)
+
         try {
             // --- Model 1: STAFF_AND_SYMBOLS ---
             val staffAndSymbolsMap = tileInferenceRunner.runStreaming(
                 spec = OmrModelSpec.STAFF_AND_SYMBOLS,
                 source = preprocessed.canonicalMat,
                 canonicalWidth = preprocessed.canonicalWidth,
-                canonicalHeight = preprocessed.canonicalHeight
+                canonicalHeight = preprocessed.canonicalHeight,
+                onProgress = { current, total ->
+                    calculator?.updateStage(OmrStage.MODEL1_INFERENCE, current.toFloat() / total, total, current)
+                }
             )
             // Argmax immediately — the 44.1 MB FloatArray in
             // staffAndSymbolsMap.data becomes GC-eligible right here,
@@ -74,19 +89,24 @@ class OmrPageInferenceRunner @Inject constructor(
                 spec = OmrModelSpec.SYMBOL_DETAIL,
                 source = preprocessed.canonicalMat,
                 canonicalWidth = preprocessed.canonicalWidth,
-                canonicalHeight = preprocessed.canonicalHeight
+                canonicalHeight = preprocessed.canonicalHeight,
+                onProgress = { current, total ->
+                    calculator?.updateStage(OmrStage.MODEL2_INFERENCE, current.toFloat() / total, total, current)
+                }
             )
             // Argmax immediately — the 58.8 MB FloatArray in
             // symbolDetailMap.data becomes GC-eligible right here.
             val symbolDetailClasses = ClassMaskExtractor.argmaxMap(symbolDetailMap)
             // symbolDetailMap is now unreferenced and GC-eligible.
 
+            calculator?.updateStage(OmrStage.POST_PROCESSING, 0.5f)
             val masks = ClassMaskExtractor.extractFromArgmaxed(
                 staffAndSymbolsClasses = staffAndSymbolsClasses,
                 symbolDetailClasses = symbolDetailClasses,
                 width = maskWidth,
                 height = maskHeight
             )
+            calculator?.updateStage(OmrStage.POST_PROCESSING, 1f)
 
             return OmrPageInferenceResult(
                 canonicalWidth = preprocessed.canonicalWidth,

@@ -1,6 +1,7 @@
 package com.sheetsight.app.data.omr.dewarp
 
 import android.graphics.Bitmap
+import com.sheetsight.app.data.omr.OmrProgressListener
 import com.sheetsight.app.data.omr.inference.OmrPageInferenceRunner
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,8 +32,8 @@ class OmrPageDewarpRunner @Inject constructor(
     private val inferenceRunner: OmrPageInferenceRunner
 ) {
 
-    fun run(page: Bitmap): DewarpedPage {
-        val inferenceResult = inferenceRunner.run(page)
+    fun run(page: Bitmap, listener: OmrProgressListener? = null): DewarpedPage {
+        val inferenceResult = inferenceRunner.run(page, listener)
         val masks = inferenceResult.masks
 
         val alignedImageChannels = ImageMaskAligner.alignToMaskSize(

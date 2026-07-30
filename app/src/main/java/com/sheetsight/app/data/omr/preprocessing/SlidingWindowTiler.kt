@@ -94,8 +94,14 @@ object SlidingWindowTiler {
         return sequence {
             for (chunk in origins.chunked(batchSize)) {
                 val batch = chunk.map { (x, y) ->
-                    val crop = Mat(padded, Rect(x, y, windowSize, windowSize)).clone()
-                    ImageTile(originX = x, originY = y, mat = crop)
+                    // PERF FIX #4: Submat view instead of clone.
+                    // This avoids allocating a new native Mat and copying pixels
+                    // for every tile (~300 clones per model). The caller must
+                    // release these views (via ImageTile.release) exactly as
+                    // before. OpenCV handles reference counting of the parent
+                    // [padded] Mat.
+                    val view = Mat(padded, Rect(x, y, windowSize, windowSize))
+                    ImageTile(originX = x, originY = y, mat = view)
                 }
                 yield(batch)
             }

@@ -18,10 +18,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-//import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
@@ -43,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestDiagnosticResult
@@ -64,6 +68,7 @@ fun OmrSmokeTestScreen(
     viewModel: OmrSmokeTestViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var fullscreenBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     Scaffold(
         topBar = {
@@ -77,93 +82,138 @@ fun OmrSmokeTestScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Text(
-                    text = "Stage-by-stage diagnostic. Each run restarts from stage 1 and stops " +
-                            "after the selected stage. If the app is killed mid-run, check logcat " +
-                            "for tag [OMR_SMOKE]: the last START line with no matching END/FAILED " +
-                            "line is the stage that was executing.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            item {
-                ScorePicker(
-                    scores = uiState.scores,
-                    selected = uiState.selectedScore,
-                    onSelected = viewModel::onScoreSelected
-                )
-            }
-            item {
-                StagePicker(
-                    selected = uiState.stopAfter,
-                    onSelected = viewModel::onStopAfterSelected
-                )
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = viewModel::onRunRequested,
-                        enabled = uiState.selectedScore != null && !uiState.isRunning
-                    ) {
-                        Text(if (uiState.isRunning) "Running…" else "Run to \"${uiState.stopAfter.label}\"")
-                    }
-                    OutlinedButton(
-                        onClick = viewModel::onAdvanceToNextStageRequested,
-                        enabled = uiState.selectedScore != null &&
-                                !uiState.isRunning &&
-                                uiState.stopAfter != SmokeTestStage.entries.last()
-                    ) {
-                        Text("Advance & run next stage")
-                    }
-                }
-            }
-            if (uiState.isRunning) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-            }
-            uiState.error?.let { message ->
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                        Text(
-                            text = message,
-                            modifier = Modifier.padding(12.dp),
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
-            uiState.diagnostic?.let { diagnostic ->
-                item { SummaryCard(diagnostic) }
-                items(diagnostic.stageDurations) { timing ->
                     Text(
-                        text = "${timing.stage.logName}: ${timing.durationMs}ms — " +
-                                "usedMem=${timing.usedMemAfterMb}MB " +
-                                "(total=${timing.totalMemAfterMb}MB free=${timing.freeMemAfterMb}MB)",
-                        style = MaterialTheme.typography.bodySmall
+                        text = "Stage-by-stage diagnostic. Each run restarts from stage 1 and stops " +
+                                "after the selected stage. If the app is killed mid-run, check logcat " +
+                                "for tag [OMR_SMOKE]: the last START line with no matching END/FAILED " +
+                                "line is the stage that was executing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                SmokeTestStage.entries.forEach { stage ->
-                    val stagePreviews = diagnostic.previews[stage]
-                    val stageDetails = diagnostic.stageDetails[stage]
-                    if (stagePreviews != null || stageDetails != null) {
-                        item {
-                            StageCard(title = stage.logName) {
-                                stageDetails?.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                                stagePreviews?.forEach { preview ->
-                                    Text(preview.label, style = MaterialTheme.typography.labelSmall)
-                                    ThumbnailImage(preview.bitmap)
+                item {
+                    ScorePicker(
+                        scores = uiState.scores,
+                        selected = uiState.selectedScore,
+                        onSelected = viewModel::onScoreSelected
+                    )
+                }
+                item {
+                    StagePicker(
+                        selected = uiState.stopAfter,
+                        onSelected = viewModel::onStopAfterSelected
+                    )
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = viewModel::onRunRequested,
+                            enabled = uiState.selectedScore != null && !uiState.isRunning
+                        ) {
+                            Text(if (uiState.isRunning) "Running…" else "Run to \"${uiState.stopAfter.label}\"")
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::onAdvanceToNextStageRequested,
+                            enabled = uiState.selectedScore != null &&
+                                    !uiState.isRunning &&
+                                    uiState.stopAfter != SmokeTestStage.entries.last()
+                        ) {
+                            Text("Advance & run next stage")
+                        }
+                    }
+                }
+                if (uiState.isRunning) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            LinearProgressIndicator(
+                                progress = { (uiState.progress?.overallPercentage ?: 0) / 100f },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                text = uiState.progress?.let { update ->
+                                    if (update.totalTiles > 0) {
+                                        "${update.stage.displayName} — Tile ${update.currentTile} / ${update.totalTiles} (${update.overallPercentage}%)"
+                                    } else {
+                                        "${update.stage.displayName} (${update.overallPercentage}%)"
+                                    }
+                                } ?: "Initializing...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+                uiState.error?.let { message ->
+                    item {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                            Text(
+                                text = message,
+                                modifier = Modifier.padding(12.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+                uiState.diagnostic?.let { diagnostic ->
+                    item { SummaryCard(diagnostic) }
+                    items(diagnostic.stageDurations) { timing ->
+                        val mem = timing.memoryAfter
+                        Text(
+                            text = "${timing.stage.logName}: ${timing.durationMs}ms\n" +
+                                    "Java: ${mem.javaUsedMb}/${mem.javaTotalMb}MB (Max ${mem.javaMaxMb}MB) | " +
+                                    "Native: ${mem.nativeUsedMb}MB",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    SmokeTestStage.entries.forEach { stage ->
+                        val stagePreviews = diagnostic.previews[stage]
+                        val stageDetails = diagnostic.stageDetails[stage]
+                        if (stagePreviews != null || stageDetails != null) {
+                            item {
+                                StageCard(title = stage.logName) {
+                                    stageDetails?.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                    stagePreviews?.forEach { preview ->
+                                        Text(preview.label, style = MaterialTheme.typography.labelSmall)
+                                        ThumbnailImage(
+                                            bitmap = preview.bitmap,
+                                            onClick = { fullscreenBitmap = preview.bitmap }
+                                        )
+                                    }
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            fullscreenBitmap?.let { bitmap ->
+                BasicAlertDialog(
+                    onDismissRequest = { fullscreenBitmap = null },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { fullscreenBitmap = null },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
                     }
                 }
             }
@@ -253,11 +303,17 @@ private fun StageCard(title: String, content: @Composable ColumnScope.() -> Unit
 }
 
 @Composable
-private fun ThumbnailImage(bitmap: Bitmap) {
+private fun ThumbnailImage(
+    bitmap: Bitmap,
+    onClick: () -> Unit
+) {
     Image(
         bitmap = bitmap.asImageBitmap(),
         contentDescription = null,
         contentScale = ContentScale.Fit,
-        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 200.dp)
+            .clickable { onClick() }
     )
 }

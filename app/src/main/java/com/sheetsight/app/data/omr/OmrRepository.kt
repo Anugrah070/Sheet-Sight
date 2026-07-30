@@ -7,16 +7,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Coordinates OMR runs on behalf of future ViewModels and exposes progress
+ * Coordinates OMR runs on behalf of ViewModels and exposes progress
  * via [state], mirroring how [com.sheetsight.app.domain.repository.ScoreRepository]
- * sits between the UI layer and storage. This is the type a Phase 4.2+
- * ViewModel (or a `RunOmrUseCase`) is expected to depend on — it should
- * never need to know [OmrEngine] exists.
- *
- * Holds no reference to [com.sheetsight.app.data.local.ScoreFileStorage] or
- * [com.sheetsight.app.domain.repository.ScoreRepository] yet; wiring a run's
- * result back into a [com.sheetsight.app.domain.model.Score]'s
- * `musicXmlPath` is part of a future phase's pipeline, not this class.
+ * sits between the UI layer and storage.
  */
 @Singleton
 class OmrRepository @Inject constructor(
@@ -30,21 +23,18 @@ class OmrRepository @Inject constructor(
 
     /**
      * Runs OMR on the image at [imagePath], driving [state] through
-     * [OmrState.Recognizing] to [OmrState.Completed]/[OmrState.Failed].
-     * [OnnxOmrEngine.recognize] still can't produce a real [OmrResult] —
-     * see its KDoc — so today this always ends in [OmrState.Failed] and
-     * rethrows; [state] is updated *before* rethrowing so an observing
-     * caller sees a clean failure without needing to catch anything.
-     *
-     * Catches [Throwable], not [Exception]: [NotImplementedError] (what
-     * [OnnxOmrEngine.recognize] currently throws) is a [kotlin.Error],
-     * which `catch (e: Exception)` would silently miss, leaving [state]
-     * stuck on [OmrState.Recognizing] forever.
+     * [OmrState.InProgress] to [OmrState.Completed]/[OmrState.Failed].
      */
     suspend fun recognize(imagePath: String): OmrResult {
-        _state.value = OmrState.Recognizing
+        _state.value = OmrState.InProgress(
+            OmrProgressUpdate(OmrStage.INPUT_DECODE, 0, isIndeterminate = true)
+        )
         return try {
-            val result = omrEngine.recognize(imagePath)
+            val result = omrEngine.recognize(imagePath, object : OmrProgressListener {
+                override fun onProgressUpdate(update: OmrProgressUpdate) {
+                    _state.value = OmrState.InProgress(update)
+                }
+            })
             _state.value = OmrState.Completed(result)
             result
         } catch (t: Throwable) {

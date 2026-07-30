@@ -46,28 +46,34 @@ class OnnxOmrEngine @Inject constructor(
      * or OpenCV crash, so callers like [OmrRepository] can show a sane
      * message instead of a stack trace.
      */
-    suspend fun recognizeDewarpedPage(imagePath: String): DewarpedPage = withContext(defaultDispatcher) {
+    suspend fun recognizeDewarpedPage(imagePath: String, listener: OmrProgressListener? = null): DewarpedPage = withContext(defaultDispatcher) {
         val bitmap = BitmapFactory.decodeFile(imagePath)
             ?: throw OmrPipelineException("Could not decode an image from '$imagePath'")
         try {
-            dewarpRunner.run(bitmap)
+            dewarpRunner.run(bitmap, listener)
         } catch (e: Exception) {
             throw OmrPipelineException("OMR pipeline failed for '$imagePath'", e)
         } finally {
             bitmap.recycle()
         }
     }
-    suspend fun recognizeStaffGrid(imagePath: String): ValidatedStaffGridResult = withContext(defaultDispatcher) {
-        val page = recognizeDewarpedPage(imagePath)
+
+    suspend fun recognizeStaffGrid(imagePath: String, listener: OmrProgressListener? = null): ValidatedStaffGridResult = withContext(defaultDispatcher) {
+        val page = recognizeDewarpedPage(imagePath, listener)
         try {
-            OmrStaffGridAssembler.assemble(page)
+            // progress update for staff grid assembly
+            val calculator = listener?.let { OmrProgressCalculator(it) }
+            calculator?.updateStage(OmrStage.POST_PROCESSING, 0.8f)
+            val result = OmrStaffGridAssembler.assemble(page)
+            calculator?.updateStage(OmrStage.POST_PROCESSING, 1.0f)
+            result
         } catch (e: Exception) {
             throw OmrPipelineException("Staff-grid assembly failed for '$imagePath'", e)
         }
     }
 
-    override suspend fun recognize(imagePath: String): OmrResult {
-        recognizeStaffGrid(imagePath) // runs and validates dewarp + staff-grid stages; result intentionally unused below
+    override suspend fun recognize(imagePath: String, listener: OmrProgressListener?): OmrResult {
+        recognizeStaffGrid(imagePath, listener) // runs and validates dewarp + staff-grid stages; result intentionally unused below
         throw NotImplementedError(
             "Dewarping, staffline extraction, barline-based track voting, track/group assignment " +
                     "and final staff-grid validation succeeded for '$imagePath', but notehead " +

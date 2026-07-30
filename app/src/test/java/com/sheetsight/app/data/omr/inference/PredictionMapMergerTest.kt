@@ -32,9 +32,10 @@ class PredictionMapMergerTest {
         val oneShotResult = PredictionMapMerger.merge(canonicalWidth, canonicalHeight, allPredictions)
 
         // Incremental merge
-        val accumulator = PredictionMapMerger.Accumulator(canonicalWidth, canonicalHeight, channels)
-        accumulator.accumulate(listOf(p1, p2))
-        accumulator.accumulate(listOf(p3))
+        val accumulator = PredictionMapAccumulator(oneShotResult.width, oneShotResult.height, channels)
+        allPredictions.forEach { p ->
+            accumulator.accumulate(p.originX, p.originY, p.windowSize, p.values)
+        }
         val incrementalResult = accumulator.finish()
 
         // Verify metadata
@@ -52,7 +53,7 @@ class PredictionMapMergerTest {
         val canonicalHeight = 50
         val channels = 1
         
-        val accumulator = PredictionMapMerger.Accumulator(canonicalWidth, canonicalHeight, channels)
+        val accumulator = PredictionMapAccumulator(canonicalWidth, canonicalHeight, channels)
         val result = accumulator.finish()
         
         assertEquals(canonicalWidth, result.width)

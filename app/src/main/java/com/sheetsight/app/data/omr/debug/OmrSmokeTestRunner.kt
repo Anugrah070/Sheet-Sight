@@ -5,6 +5,9 @@ import android.graphics.BitmapFactory
 import android.os.SystemClock
 import android.util.Log
 import com.sheetsight.app.data.omr.OmrPipelineException
+import com.sheetsight.app.data.omr.OmrProgressCalculator
+import com.sheetsight.app.data.omr.OmrProgressListener
+import com.sheetsight.app.data.omr.OmrStage
 import com.sheetsight.app.data.omr.dewarp.DewarpPipeline
 import com.sheetsight.app.data.omr.dewarp.ImageMaskAligner
 import com.sheetsight.app.data.omr.inference.ClassMaskExtractor
@@ -94,12 +97,17 @@ class OmrSmokeTestRunner @Inject constructor(
      * Returns a diagnostic result describing exactly how far it got,
      * even on failure — never a fabricated success.
      */
-    suspend fun run(imagePath: String, stopAfter: SmokeTestStage): OmrSmokeTestDiagnosticResult =
+    suspend fun run(
+        imagePath: String,
+        stopAfter: SmokeTestStage,
+        listener: OmrProgressListener? = null
+    ): OmrSmokeTestDiagnosticResult =
         withContext(defaultDispatcher) {
             val timings = mutableListOf<OmrSmokeTestStageTiming>()
             val previews = mutableMapOf<SmokeTestStage, List<OmrSmokeTestPreview>>()
             val details = mutableMapOf<SmokeTestStage, List<String>>()
             var lastCompletedStage: SmokeTestStage? = null
+            val calculator = listener?.let { OmrProgressCalculator(it) }
 
             // Retained-between-stages state. Each is released in `finally`
             // below and nulled out the moment an earlier stage no longer
@@ -111,10 +119,12 @@ class OmrSmokeTestRunner @Inject constructor(
 
             try {
                 // STAGE 1 — Input decode
+                calculator?.updateStage(OmrStage.INPUT_DECODE, 0.1f)
                 bitmap = traceStage(SmokeTestStage.INPUT_DECODE, timings) {
                     BitmapFactory.decodeFile(imagePath)
                         ?: throw OmrPipelineException("Could not decode an image from '$imagePath'")
                 }
+                calculator?.updateStage(OmrStage.INPUT_DECODE, 1f)
                 previews[SmokeTestStage.INPUT_DECODE] =
                     listOf(OmrSmokeTestPreview("input", OmrSmokeTestBitmaps.thumbnailOf(bitmap)))
                 lastCompletedStage = SmokeTestStage.INPUT_DECODE
@@ -123,6 +133,7 @@ class OmrSmokeTestRunner @Inject constructor(
                 }
 
                 // STAGE 2 — Preprocessing (oemer byte-order conversion + canonical resize)
+                calculator?.updateStage(OmrStage.PREPROCESSING, 0.1f)
                 traceStage(SmokeTestStage.PREPROCESSING, timings) {
                     oemerOrdered = ImagePreprocessing.toOemerOrderedMat(bitmap!!)
                     resized = CanonicalImageResizer.resize(oemerOrdered!!)
@@ -138,6 +149,7 @@ class OmrSmokeTestRunner @Inject constructor(
                 val canonicalWidth = resized!!.width()
                 val canonicalHeight = resized!!.height()
                 val canonicalImageChannels = ImagePreprocessing.extractChannels(resized!!)
+                calculator?.updateStage(OmrStage.PREPROCESSING, 1f)
                 previews[SmokeTestStage.PREPROCESSING] = listOf(
                     OmrSmokeTestPreview(
                         "canonical",
@@ -154,9 +166,11 @@ class OmrSmokeTestRunner @Inject constructor(
                 // need, via pure coordinate math (SlidingWindowTiler.computeOrigins),
                 // with zero Mat allocation. Actual tile generation now happens lazily,
                 // batch by batch, inside MODEL1_INFERENCE/MODEL2_INFERENCE below.
+                calculator?.updateStage(OmrStage.TILING, 0.1f)
                 val tileCounts = traceStage(SmokeTestStage.TILING, timings) {
                     OmrModelSpec.entries.associateWith { spec -> tileCountFor(spec, canonicalWidth, canonicalHeight) }
                 }
+                calculator?.updateStage(OmrStage.TILING, 1f)
                 details[SmokeTestStage.TILING] = tileCounts.map { (spec, count) ->
                     "${spec.name}: $count tiles @ ${spec.windowSize}x${spec.windowSize} " +
                             "(count only -- no tiles allocated yet)"
@@ -178,7 +192,10 @@ class OmrSmokeTestRunner @Inject constructor(
                         spec = OmrModelSpec.STAFF_AND_SYMBOLS,
                         source = resized!!,
                         canonicalWidth = canonicalWidth,
-                        canonicalHeight = canonicalHeight
+                        canonicalHeight = canonicalHeight,
+                        onProgress = { current, total ->
+                            calculator?.updateStage(OmrStage.MODEL1_INFERENCE, current.toFloat() / total, total, current)
+                        }
                     )
                     val result = ArgmaxedMap(
                         classes = ClassMaskExtractor.argmaxMap(map),
@@ -208,7 +225,10 @@ class OmrSmokeTestRunner @Inject constructor(
                         spec = OmrModelSpec.SYMBOL_DETAIL,
                         source = resized!!,
                         canonicalWidth = canonicalWidth,
-                        canonicalHeight = canonicalHeight
+                        canonicalHeight = canonicalHeight,
+                        onProgress = { current, total ->
+                            calculator?.updateStage(OmrStage.MODEL2_INFERENCE, current.toFloat() / total, total, current)
+                        }
                     )
                     val result = ArgmaxedMap(
                         classes = ClassMaskExtractor.argmaxMap(map),
@@ -249,6 +269,7 @@ class OmrSmokeTestRunner @Inject constructor(
                 }
 
                 // STAGE 7 — Class-mask extraction (from pre-argmaxed IntArrays)
+                calculator?.updateStage(OmrStage.POST_PROCESSING, 0.2f)
                 val masks = traceStage(SmokeTestStage.CLASS_MASK_EXTRACTION, timings) {
                     ClassMaskExtractor.extractFromArgmaxed(
                         staffAndSymbolsClasses = argmaxedModel1.classes,
@@ -264,6 +285,7 @@ class OmrSmokeTestRunner @Inject constructor(
                 }
 
                 // STAGE 8 — Dewarping
+                calculator?.updateStage(OmrStage.POST_PROCESSING, 0.4f)
                 val alignedImageChannels = ImageMaskAligner.alignToMaskSize(
                     channels = canonicalImageChannels,
                     sourceWidth = canonicalWidth,
@@ -287,9 +309,11 @@ class OmrSmokeTestRunner @Inject constructor(
                 }
 
                 // STAGE 9 — Staffline/grid assembly
+                calculator?.updateStage(OmrStage.POST_PROCESSING, 0.8f)
                 val gridResult = traceStage(SmokeTestStage.STAFF_GRID_ASSEMBLY, timings) {
                     OmrStaffGridAssembler.assemble(dewarped)
                 }
+                calculator?.updateStage(OmrStage.POST_PROCESSING, 1.0f)
                 details[SmokeTestStage.STAFF_GRID_ASSEMBLY] = listOf(
                     "trackNums=${gridResult.trackVote.trackNums}",
                     "barlineBoxes=${gridResult.trackVote.barlineBoxes.size}",
@@ -336,10 +360,10 @@ class OmrSmokeTestRunner @Inject constructor(
         details: Map<SmokeTestStage, List<String>>,
         errorMessage: String?
     ): OmrSmokeTestDiagnosticResult {
-        val peakUsedMb = timings.maxOfOrNull { it.usedMemAfterMb } ?: 0L
+        val peakUsedMb = timings.maxOfOrNull { it.memoryAfter.javaUsedMb + it.memoryAfter.nativeUsedMb } ?: 0L
         Log.d(
             TAG,
-            "[OMR_SMOKE] PEAK usedMB=$peakUsedMb across ${timings.size} completed stage(s); " +
+            "[OMR_SMOKE] PEAK (Java+Native) usedMB=$peakUsedMb across ${timings.size} completed stage(s); " +
                     "lastCompletedStage=$lastCompletedStage"
         )
         return OmrSmokeTestDiagnosticResult(
@@ -366,9 +390,6 @@ class OmrSmokeTestRunner @Inject constructor(
      * Logs `[OMR_SMOKE] START/END <stage>` (plus `MEM before/after`) around
      * [block], records its [OmrSmokeTestStageTiming], and logs
      * `[OMR_SMOKE] FAILED <stage> error=...` before rethrowing on failure.
-     * A process kill mid-[block] has no corresponding `END`/`FAILED` line —
-     * that gap is the diagnostic signal, not something this function
-     * detects itself.
      */
     private fun <T> traceStage(
         stage: SmokeTestStage,
@@ -376,8 +397,7 @@ class OmrSmokeTestRunner @Inject constructor(
         block: () -> T
     ): T {
         Log.d(TAG, "[OMR_SMOKE] START ${stage.logName}")
-        val (usedBefore, totalBefore, freeBefore) = memStatsMb()
-        Log.d(TAG, "[OMR_SMOKE] MEM before ${stage.logName} usedMB=$usedBefore totalMB=$totalBefore freeMB=$freeBefore")
+        MemoryTracker.log("${stage.label} (Before)", MemoryTracker.capture())
 
         val startMs = SystemClock.elapsedRealtime()
         val result = try {
@@ -388,18 +408,11 @@ class OmrSmokeTestRunner @Inject constructor(
         }
         val elapsed = SystemClock.elapsedRealtime() - startMs
 
-        val (usedAfter, totalAfter, freeAfter) = memStatsMb()
+        val snapshot = MemoryTracker.capture()
         Log.d(TAG, "[OMR_SMOKE] END ${stage.logName} durationMs=$elapsed")
-        Log.d(TAG, "[OMR_SMOKE] MEM after ${stage.logName} usedMB=$usedAfter totalMB=$totalAfter freeMB=$freeAfter")
+        MemoryTracker.log("${stage.label} (After)", snapshot)
 
-        timings.add(OmrSmokeTestStageTiming(stage, elapsed, usedAfter, totalAfter, freeAfter))
+        timings.add(OmrSmokeTestStageTiming(stage, elapsed, snapshot))
         return result
-    }
-
-    private fun memStatsMb(): Triple<Long, Long, Long> {
-        val runtime = Runtime.getRuntime()
-        val totalMb = runtime.totalMemory() / (1024 * 1024)
-        val freeMb = runtime.freeMemory() / (1024 * 1024)
-        return Triple(totalMb - freeMb, totalMb, freeMb)
     }
 }

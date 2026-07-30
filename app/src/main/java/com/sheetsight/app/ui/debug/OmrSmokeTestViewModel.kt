@@ -2,6 +2,8 @@ package com.sheetsight.app.ui.debug
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sheetsight.app.data.omr.OmrProgressListener
+import com.sheetsight.app.data.omr.OmrProgressUpdate
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestDiagnosticResult
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestRunner
 import com.sheetsight.app.data.omr.debug.SmokeTestStage
@@ -32,6 +34,7 @@ data class OmrSmokeTestUiState(
     val isRunning: Boolean = false,
     val stopAfter: SmokeTestStage = SmokeTestStage.INPUT_DECODE,
     val diagnostic: OmrSmokeTestDiagnosticResult? = null,
+    val progress: OmrProgressUpdate? = null,
     val error: String? = null
 )
 
@@ -58,6 +61,7 @@ class OmrSmokeTestViewModel @Inject constructor(
                 selectedScore = score,
                 stopAfter = SmokeTestStage.INPUT_DECODE, // conservative reset per score
                 diagnostic = null,
+                progress = null,
                 error = null
             )
         }
@@ -93,9 +97,13 @@ class OmrSmokeTestViewModel @Inject constructor(
 
     private fun runSmokeTest(imagePath: String, stopAfter: SmokeTestStage) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isRunning = true, error = null) }
+            _uiState.update { it.copy(isRunning = true, error = null, progress = null) }
             try {
-                val result = smokeTestRunner.run(imagePath, stopAfter)
+                val result = smokeTestRunner.run(imagePath, stopAfter, object : OmrProgressListener {
+                    override fun onProgressUpdate(update: OmrProgressUpdate) {
+                        _uiState.update { it.copy(progress = update) }
+                    }
+                })
                 _uiState.update { it.copy(diagnostic = result, error = result.errorMessage) }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t

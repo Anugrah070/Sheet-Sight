@@ -52,6 +52,10 @@ class OmrTensorFactory @Inject constructor(
     private var scratchBuffer: ByteBuffer? = null
     private var scratchCapacity: Int = 0
 
+    // PERF FIX #5: Trampoline array reuse.
+    // Avoid allocating a fresh ByteArray(tileByteCount) per tile pack.
+    private var tileTrampolineArray: ByteArray? = null
+
     /**
      * Builds one NHWC UINT8 tensor from [tiles]. All tiles must share
      * [spec]'s window size — [OmrPreprocessor]/[SlidingWindowTiler]
@@ -67,7 +71,10 @@ class OmrTensorFactory @Inject constructor(
 
         val buffer = obtainScratchBuffer(neededBytes)
 
-        val tileBytes = ByteArray(tileByteCount)
+        // Ensure trampoline is big enough for this spec
+        val trampoline = tileTrampolineArray?.takeIf { it.size >= tileByteCount } 
+            ?: ByteArray(tileByteCount).also { tileTrampolineArray = it }
+
         for (tile in tiles) {
             val mat = tile.mat
             require(mat.width() == windowSize && mat.height() == windowSize) {
@@ -77,8 +84,8 @@ class OmrTensorFactory @Inject constructor(
             require(mat.type() == CvType.CV_8UC3) {
                 "Tile at (${tile.originX}, ${tile.originY}) has OpenCV type ${mat.type()}, expected CV_8UC3"
             }
-            mat.get(0, 0, tileBytes)
-            buffer.put(tileBytes)
+            mat.get(0, 0, trampoline)
+            buffer.put(trampoline, 0, tileByteCount)
         }
         buffer.rewind() // position back to 0; limit stays at neededBytes, set by obtainScratchBuffer
 

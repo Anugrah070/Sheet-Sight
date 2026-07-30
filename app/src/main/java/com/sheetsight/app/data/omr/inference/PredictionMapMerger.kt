@@ -120,6 +120,42 @@ class PredictionMapAccumulator(
     }
 
     /**
+     * PERF FIX #2: Direct buffer accumulation.
+     * Folds one tile's raw data directly from [buffer] (starting at
+     * [offset]) into the accumulator, avoiding the per-tile JVM array
+     * copy previously performed in TileInferenceRunner.
+     */
+    fun accumulate(originX: Int, originY: Int, windowSize: Int, buffer: java.nio.FloatBuffer, offset: Int) {
+        // Hoist constant calculations
+        val tilePixelCount = windowSize * windowSize
+        val tileElementCount = tilePixelCount * channels
+
+        // Temporary local position management — calling buffer.get(float[])
+        // is generally faster than per-element buffer.get(index), but we
+        // are scattering tile pixels into a larger page, so we must loop.
+        // We use a small per-row scratch buffer to bulk-read from the
+        // direct buffer if performance allows, but for now we optimize the
+        // math in the tight loop.
+        for (dy in 0 until windowSize) {
+            val py = originY + dy
+            val srcRowBase = offset + (dy * windowSize * channels)
+            val destRowBase = py * width
+            for (dx in 0 until windowSize) {
+                val px = originX + dx
+                val pixelIndex = destRowBase + px
+                count[pixelIndex] += 1
+                
+                val destBase = pixelIndex * channels
+                val srcBase = srcRowBase + (dx * channels)
+                for (c in 0 until channels) {
+                    // Direct buffer access — still faster than the double copy
+                    sum[destBase + c] += buffer.get(srcBase + c)
+                }
+            }
+        }
+    }
+
+    /**
      * Averages every multiply-touched pixel and returns the finished
      * [OmrPredictionMap]. Call exactly once, after every tile has been
      * passed to [accumulate].

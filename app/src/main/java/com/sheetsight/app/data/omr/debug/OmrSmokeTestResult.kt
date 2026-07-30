@@ -30,13 +30,11 @@ enum class SmokeTestStage(val stageNumber: Int, val label: String) {
     val logName: String get() = "STAGE $stageNumber ($label)"
 }
 
-/** One stage's timing + JVM heap snapshot, taken immediately after the stage completes. */
+/** One stage's timing + detailed memory snapshot, taken immediately after the stage completes. */
 data class OmrSmokeTestStageTiming(
     val stage: SmokeTestStage,
     val durationMs: Long,
-    val usedMemAfterMb: Long,
-    val totalMemAfterMb: Long,
-    val freeMemAfterMb: Long
+    val memoryAfter: MemorySnapshot
 )
 
 /** One small labelled preview bitmap (~320px longest edge) for a completed stage. */

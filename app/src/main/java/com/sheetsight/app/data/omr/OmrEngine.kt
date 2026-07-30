@@ -19,7 +19,7 @@ interface OmrEngine {
 
     /**
      * Recognizes the sheet-music page image at [imagePath] and returns the
-     * produced [OmrResult]. Not implemented until Phase 4.2.
+     * produced [OmrResult].
      */
-    suspend fun recognize(imagePath: String): OmrResult
+    suspend fun recognize(imagePath: String, listener: OmrProgressListener? = null): OmrResult
 }

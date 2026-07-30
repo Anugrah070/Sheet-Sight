@@ -1,5 +1,6 @@
 package com.sheetsight.app.data.omr.debug
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.SystemClock
@@ -13,12 +14,21 @@ import com.sheetsight.app.data.omr.dewarp.ImageMaskAligner
 import com.sheetsight.app.data.omr.inference.ClassMaskExtractor
 import com.sheetsight.app.data.omr.inference.OmrClassMasks
 import com.sheetsight.app.data.omr.inference.TileInferenceRunner
+import com.sheetsight.app.data.omr.grouping.NoteGrouper
+import com.sheetsight.app.data.omr.notehead.NoteheadExtractor
 import com.sheetsight.app.data.omr.preprocessing.CanonicalImageResizer
 import com.sheetsight.app.data.omr.preprocessing.ImagePreprocessing
 import com.sheetsight.app.data.omr.preprocessing.OmrModelSpec
 import com.sheetsight.app.data.omr.preprocessing.SlidingWindowTiler
 import com.sheetsight.app.data.omr.track.OmrStaffGridAssembler
+import com.sheetsight.app.data.omr.rhythm.RhythmEvidenceMasks
+import com.sheetsight.app.data.omr.rhythm.RhythmExtractor
+import com.sheetsight.app.data.omr.symbol.AssetManagerSymbolModelSource
+import com.sheetsight.app.data.omr.symbol.SvmModelKind
+import com.sheetsight.app.data.omr.symbol.SymbolClassifierLoader
+import com.sheetsight.app.data.omr.symbol.UnsupportedModelException
 import com.sheetsight.app.di.DefaultDispatcher
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -86,6 +96,7 @@ import javax.inject.Singleton
 @Singleton
 class OmrSmokeTestRunner @Inject constructor(
     private val tileInferenceRunner: TileInferenceRunner,
+    @ApplicationContext private val context: Context,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) {
     companion object {
@@ -322,7 +333,101 @@ class OmrSmokeTestRunner @Inject constructor(
                     "validatedStaffs=${gridResult.validatedGrid.sumOf { it.size }}"
                 )
                 lastCompletedStage = SmokeTestStage.STAFF_GRID_ASSEMBLY
+                if (stopAfter == SmokeTestStage.STAFF_GRID_ASSEMBLY) {
+                    return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                }
 
+                // STAGE 10 — Notehead extraction. The extractor borrows the
+                // dewarped masks and retains only per-note source pixels.
+                val noteheads = traceStage(SmokeTestStage.NOTEHEAD_EXTRACTION, timings) {
+                    NoteheadExtractor.extract(dewarped.masks, gridResult.validatedGrid)
+                }
+                details[SmokeTestStage.NOTEHEAD_EXTRACTION] = listOf(
+                    "detected notehead count=${noteheads.size}"
+                )
+                reusedDewarpedMaskPreview(previews, "dewarped_noteheads")?.let {
+                    previews[SmokeTestStage.NOTEHEAD_EXTRACTION] =
+                        listOf(it.copy(label = "detected noteheads"))
+                }
+                lastCompletedStage = SmokeTestStage.NOTEHEAD_EXTRACTION
+                if (stopAfter == SmokeTestStage.NOTEHEAD_EXTRACTION) {
+                    return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                }
+
+                // STAGE 11 — Grouping only; no rhythm labels are created.
+                val chords = traceStage(SmokeTestStage.NOTE_GROUPING, timings) {
+                    NoteGrouper.group(
+                        noteheads = noteheads,
+                        stemMask = dewarped.masks.stemsRests,
+                        width = dewarped.width,
+                        height = dewarped.height
+                    )
+                }
+                details[SmokeTestStage.NOTE_GROUPING] = listOf(
+                    "grouped chord count=${chords.size}"
+                )
+                reusedDewarpedMaskPreview(previews, "dewarped_stemsRests")?.let {
+                    previews[SmokeTestStage.NOTE_GROUPING] =
+                        listOf(it.copy(label = "grouping stems"))
+                }
+                lastCompletedStage = SmokeTestStage.NOTE_GROUPING
+                if (stopAfter == SmokeTestStage.NOTE_GROUPING) {
+                    return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                }
+
+                // STAGE 12 — Validate model loading only. Missing/unsupported
+                // sklearn models are an expected documented state, never a
+                // reason to invent symbol predictions.
+                val classifierStatuses = traceStage(SmokeTestStage.SYMBOL_CLASSIFICATION, timings) {
+                    val loader = SymbolClassifierLoader(
+                        AssetManagerSymbolModelSource(context.assets)
+                    )
+                    SvmModelKind.entries.map { kind ->
+                        try {
+                            loader.load(kind)
+                            "${kind.name}: loaded"
+                        } catch (error: UnsupportedModelException) {
+                            "${kind.name}: unsupported (${error.message})"
+                        }
+                    }
+                }
+                details[SmokeTestStage.SYMBOL_CLASSIFICATION] =
+                    listOf("classified symbols=0 (no fabricated predictions)") + classifierStatuses
+                reusedDewarpedMaskPreview(previews, "dewarped_clefsKeys")?.let {
+                    previews[SmokeTestStage.SYMBOL_CLASSIFICATION] =
+                        listOf(it.copy(label = "unclassified clef/accidental mask"))
+                }
+                lastCompletedStage = SmokeTestStage.SYMBOL_CLASSIFICATION
+                if (stopAfter == SmokeTestStage.SYMBOL_CLASSIFICATION) {
+                    return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                }
+
+                // STAGE 13 — Framework records only. Beam/flag/dot extraction
+                // is not ported, so evidence is explicitly incomplete and
+                // every duration remains null.
+                val rhythmCandidates = traceStage(SmokeTestStage.RHYTHM_FRAMEWORK, timings) {
+                    RhythmExtractor.prepareCandidates(
+                        noteheads = noteheads,
+                        chords = chords,
+                        evidence = RhythmEvidenceMasks(
+                            width = dewarped.width,
+                            height = dewarped.height,
+                            stems = dewarped.masks.stemsRests,
+                            beams = null,
+                            flags = null,
+                            dots = null
+                        )
+                    )
+                }
+                details[SmokeTestStage.RHYTHM_FRAMEWORK] = listOf(
+                    "rhythm candidates=${rhythmCandidates.size}",
+                    "resolved durations=0 (framework only; evidence incomplete)"
+                )
+                reusedDewarpedMaskPreview(previews, "dewarped_symbols")?.let {
+                    previews[SmokeTestStage.RHYTHM_FRAMEWORK] =
+                        listOf(it.copy(label = "raw rhythm evidence source"))
+                }
+                lastCompletedStage = SmokeTestStage.RHYTHM_FRAMEWORK
                 diagnosticResult(lastCompletedStage, timings, previews, details, null)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -385,6 +490,13 @@ class OmrSmokeTestRunner @Inject constructor(
             OmrSmokeTestPreview("${prefix}clefsKeys", thumbs.clefsKeys)
         )
     }
+
+    /** Reuses an existing tiny Stage 8 bitmap; no new full-page or thumbnail bitmap is allocated. */
+    private fun reusedDewarpedMaskPreview(
+        previews: Map<SmokeTestStage, List<OmrSmokeTestPreview>>,
+        label: String
+    ): OmrSmokeTestPreview? =
+        previews[SmokeTestStage.DEWARPING]?.firstOrNull { it.label == label }
 
     /**
      * Logs `[OMR_SMOKE] START/END <stage>` (plus `MEM before/after`) around

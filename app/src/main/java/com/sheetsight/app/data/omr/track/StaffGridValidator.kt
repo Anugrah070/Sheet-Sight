@@ -4,19 +4,19 @@ import kotlin.math.abs
 
 object StaffGridValidator {
 
-    const val DEFAULT_Y_CENTER_TOLERANCE_UNITS: Double = 0.5
-    const val DEFAULT_UNIT_SIZE_TOLERANCE_RATIO: Double = 0.15
+    const val DEFAULT_Y_CENTER_TOLERANCE_RATIO: Double = 0.1
+    const val DEFAULT_UNIT_SIZE_TOLERANCE_RATIO: Double = 0.1
 
     fun validate(
         assignedGrid: List<List<AssignedStaff>>,
-        yCenterToleranceUnits: Double = DEFAULT_Y_CENTER_TOLERANCE_UNITS,
+        yCenterToleranceRatio: Double = DEFAULT_Y_CENTER_TOLERANCE_RATIO,
         unitSizeToleranceRatio: Double = DEFAULT_UNIT_SIZE_TOLERANCE_RATIO
     ): List<List<AssignedStaff>> {
         if (assignedGrid.isEmpty()) return emptyList()
 
         val columnCount = assignedGrid.maxOf { it.size }
         val validColumn = BooleanArray(columnCount) { col ->
-            isRowValid(rowAt(assignedGrid, col), yCenterToleranceUnits, unitSizeToleranceRatio)
+            isRowValid(rowAt(assignedGrid, col), yCenterToleranceRatio, unitSizeToleranceRatio)
         }
 
         return assignedGrid.map { zone ->
@@ -28,7 +28,7 @@ object StaffGridValidator {
     private fun rowAt(assignedGrid: List<List<AssignedStaff>>, col: Int): List<AssignedStaff> =
         assignedGrid.mapNotNull { zone -> zone.getOrNull(col) }
 
-    private fun isRowValid(row: List<AssignedStaff>, yTolUnits: Double, unitTolRatio: Double): Boolean {
+    private fun isRowValid(row: List<AssignedStaff>, yTolRatio: Double, unitTolRatio: Double): Boolean {
         if (row.isEmpty()) return false
 
         if (row.any { it.staff.lines.size != 5 }) return false
@@ -36,12 +36,12 @@ object StaffGridValidator {
         val unitSizes = row.map { it.staff.unitSize }
         val meanUnitSize = unitSizes.average()
         if (meanUnitSize <= 0.0) return false
-        if (unitSizes.any { abs(it - meanUnitSize) / meanUnitSize > unitTolRatio }) return false
+        if (unitSizes.any { abs(it / meanUnitSize - 1.0) >= unitTolRatio }) return false
 
         val yCenters = row.map { it.staff.yCenter }
         val meanYCenter = yCenters.average()
-        val yTolerancePixels = yTolUnits * meanUnitSize
-        if (yCenters.any { abs(it - meanYCenter) > yTolerancePixels }) return false
+        if (meanYCenter == 0.0) return false
+        if (yCenters.any { abs(it / meanYCenter - 1.0) >= yTolRatio }) return false
 
         return true
     }

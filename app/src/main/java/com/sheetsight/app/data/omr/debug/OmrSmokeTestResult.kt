@@ -3,7 +3,7 @@ package com.sheetsight.app.data.omr.debug
 import android.graphics.Bitmap
 
 /**
- * The nine diagnostic stages the OMR smoke test can stop after. Numbering
+ * The diagnostic stages the OMR smoke test can stop after. Numbering
  * and labels match the required `[OMR_SMOKE] START/END` log format
  * exactly, so grepping logcat for a stage number tells you precisely
  * where a stall or process kill happened.
@@ -24,7 +24,11 @@ enum class SmokeTestStage(val stageNumber: Int, val label: String) {
     PREDICTION_MERGING(6, "Prediction-map merging"),
     CLASS_MASK_EXTRACTION(7, "Class-mask extraction"),
     DEWARPING(8, "Dewarping"),
-    STAFF_GRID_ASSEMBLY(9, "Staffline/grid assembly");
+    STAFF_GRID_ASSEMBLY(9, "Staffline/grid assembly"),
+    NOTEHEAD_EXTRACTION(10, "Notehead extraction"),
+    NOTE_GROUPING(11, "Note grouping"),
+    SYMBOL_CLASSIFICATION(12, "Symbol classification"),
+    RHYTHM_FRAMEWORK(13, "Rhythm framework");
 
     /** e.g. "STAGE 4 (Model 1 inference)" — used verbatim in every [OMR_SMOKE] log line. */
     val logName: String get() = "STAGE $stageNumber ($label)"

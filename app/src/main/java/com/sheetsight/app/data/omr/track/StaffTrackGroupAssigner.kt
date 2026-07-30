@@ -7,16 +7,13 @@ object StaffTrackGroupAssigner {
     fun assign(staffGrid: List<List<ZoneStaff>>, numTrack: Int): List<List<AssignedStaff>> {
         require(numTrack >= 1) { "numTrack must be >= 1, was $numTrack" }
 
-        var idx = 0
         return staffGrid.map { zoneStaffs ->
-            zoneStaffs.map { staff ->
-                val assigned = AssignedStaff(
+            zoneStaffs.mapIndexed { index, staff ->
+                AssignedStaff(
                     staff = staff,
-                    track = idx % numTrack,
-                    group = idx / numTrack
+                    track = index % numTrack,
+                    group = index / numTrack
                 )
-                idx++
-                assigned
             }
         }
     }

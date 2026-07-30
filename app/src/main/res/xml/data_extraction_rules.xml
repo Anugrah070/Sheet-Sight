@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Empty for Phase 1 — see backup_rules.xml for the same note. Both files
+    will be filled in together once the Room schema (Phase 2) defines what
+    actually needs cloud-backup / device-transfer rules.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+    </cloud-backup>
+    <device-transfer>
+    </device-transfer>
+</data-extraction-rules>

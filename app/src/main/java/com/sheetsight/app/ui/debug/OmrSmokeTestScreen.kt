@@ -1,6 +1,8 @@
 package com.sheetsight.app.ui.debug
 
 import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +54,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestDiagnosticResult
 import com.sheetsight.app.data.omr.debug.SmokeTestStage
 import com.sheetsight.app.domain.model.Score
+import java.io.File
+
+private const val MUSICXML_MIME_TYPE = "application/vnd.recordare.musicxml+xml"
 
 /**
  * Developer-only smoke test screen: pick one imported score, pick a stage
@@ -69,6 +74,11 @@ fun OmrSmokeTestScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var fullscreenBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val persistentMusicXmlLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(MUSICXML_MIME_TYPE)
+    ) { uri ->
+        if (uri != null) viewModel.onPersistentMusicXmlTargetSelected(uri)
+    }
 
     Scaffold(
         topBar = {
@@ -166,6 +176,17 @@ fun OmrSmokeTestScreen(
                 }
                 uiState.diagnostic?.let { diagnostic ->
                     item { SummaryCard(diagnostic) }
+                    diagnostic.musicXmlOutputPath?.let { outputPath ->
+                        item {
+                            PersistentMusicXmlExportCard(
+                                fileName = File(outputPath).name,
+                                isSaving = uiState.isSavingMusicXml,
+                                message = uiState.musicXmlSaveMessage,
+                                error = uiState.musicXmlSaveError,
+                                onSave = { persistentMusicXmlLauncher.launch(File(outputPath).name) }
+                            )
+                        }
+                    }
                     items(diagnostic.stageDurations) { timing ->
                         val mem = timing.memoryAfter
                         Text(
@@ -216,6 +237,38 @@ fun OmrSmokeTestScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersistentMusicXmlExportCard(
+    fileName: String,
+    isSaving: Boolean,
+    message: String?,
+    error: String?,
+    onSave: () -> Unit
+) {
+    Card {
+        Column(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Persistent MusicXML debug copy", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Save $fileName through the file explorer. The selected copy remains outside " +
+                    "app-private storage and survives app data removal or uninstall.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(onClick = onSave, enabled = !isSaving) {
+                Text(if (isSaving) "Saving…" else "Save through file explorer")
+            }
+            message?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            }
+            error?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }

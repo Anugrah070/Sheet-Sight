@@ -51,6 +51,44 @@ class ScoreFileStorage @Inject constructor(
             PdfRenderer(pfd).use { renderer -> renderer.pageCount }
         }
 
+    /**
+     * Writes UTF-8 MusicXML bytes beside imported scores in app-private storage.
+     * The stable target name is replaced on a repeated export so a persisted
+     * [com.sheetsight.app.domain.model.Score.musicXmlPath] never drifts.
+     */
+    fun writeMusicXml(outputName: String, utf8Bytes: ByteArray): File {
+        val requestedName = sanitizeFileName(outputName).ifBlank { "score" }
+        val fileName = if (requestedName.endsWith(".musicxml", ignoreCase = true)) {
+            requestedName
+        } else {
+            "$requestedName.musicxml"
+        }
+        return File(scoresDir, fileName).also { target ->
+            target.outputStream().use { it.write(utf8Bytes) }
+        }
+    }
+
+    /**
+     * Copies a generated app-private MusicXML file to a document chosen through
+     * Android's file explorer. The destination copy is user-owned and remains
+     * available independently of this app's private storage lifecycle.
+     */
+    fun copyMusicXmlToDocument(sourcePath: String, destinationUri: Uri): Long {
+        val source = File(sourcePath).canonicalFile
+        val storageRoot = scoresDir.canonicalFile
+        require(source.parentFile == storageRoot) {
+            "MusicXML debug export must originate from app-local score storage"
+        }
+        require(source.isFile && source.extension.equals("musicxml", ignoreCase = true)) {
+            "MusicXML debug export source does not exist or has an unsupported extension"
+        }
+        val output = context.contentResolver.openOutputStream(destinationUri, "w")
+            ?: throw IOException("Unable to open the selected MusicXML destination.")
+        return source.inputStream().use { input ->
+            output.use { destination -> input.copyTo(destination) }
+        }
+    }
+
     private fun resolveAvailableFile(fileName: String): File {
         val dir = scoresDir
         var candidate = File(dir, fileName)

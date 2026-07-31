@@ -1,0 +1,41 @@
+{
+  "source": {
+    "package": "oemer",
+    "version": "0.1.8",
+    "wheelSha256": "713b9c06e1ade3fa0c5f9fa2c396cbb1492ce6be30d0bd25d57601af1eb32917",
+    "license": "MIT"
+  },
+  "conversion": {
+    "sklearn": "1.2.2",
+    "skl2onnx": "1.20.0",
+    "targetOpset": 21,
+    "onnxMlOpset": 3,
+    "inputType": "float32[batch,2800]"
+  },
+  "models": [
+    {
+      "source": "clef.model",
+      "sourceSha256": "5ad9c21ed98242be117a69d01c8d92717c6546e89f3f0267e43e2a41a06cbfda",
+      "asset": "oemer_clef_svc.onnx",
+      "assetSha256": "6933b864c709ab170b03ea5c224e7db4a1cf2d9f3cf28fe42ab04ab71ac8032f"
+    },
+    {
+      "source": "rests.model",
+      "sourceSha256": "b079103783e6c6994b3f01bff722efceb72f43ffb2122068748caec936d6077f",
+      "asset": "oemer_rests_svc.onnx",
+      "assetSha256": "9a6286dc9d97f867d5bf28aa6ca57fc56e7957b633f0b357fc6a9f39604a8172"
+    },
+    {
+      "source": "rests_above8.model",
+      "sourceSha256": "3deae5548686ccd77e4bcf88408ed9068d1f049b8f4d271a93fab6ba90a3af00",
+      "asset": "oemer_rests_above8_svc.onnx",
+      "assetSha256": "e7627cba0680ab0bf6a457ba46169c60b5b959495a24ba5fb0b09aed62a2d290"
+    },
+    {
+      "source": "sfn.model",
+      "sourceSha256": "9e85b4e974b2b9043a7944a8ef8346e66ee4c857488157241487c67b095682d2",
+      "asset": "oemer_sfn_svc.onnx",
+      "assetSha256": "437f2a3b52948639ffb201f353356c8d1a2a87a8d152ec7003d2623408633a38"
+    }
+  ]
+}

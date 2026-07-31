@@ -1,5 +1,7 @@
 package com.sheetsight.app.data.omr.preprocessing
 
+import com.sheetsight.app.data.omr.inference.OnnxAssetSpec
+
 /**
  * Verified input-tensor specification for one of oemer's two ONNX
  * segmentation checkpoints, bundled under `app/src/main/assets/models/`.
@@ -32,12 +34,12 @@ package com.sheetsight.app.data.omr.preprocessing
  *   — the per-pixel raw prediction/class-score vector length.
  */
 enum class OmrModelSpec(
-    val assetPath: String,
+    override val assetPath: String,
     val inputTensorName: String,
     val outputTensorName: String,
     val windowSize: Int,
     val outputChannels: Int
-) {
+) : OnnxAssetSpec {
     /** oemer's "unet_big" checkpoint: staff lines + symbols. */
     STAFF_AND_SYMBOLS(
         assetPath = "models/oemer_staff_and_symbols.onnx",

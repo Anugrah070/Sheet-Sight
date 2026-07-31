@@ -160,10 +160,10 @@ object NoteheadExtractor {
             "staff unit size $unitSize produces an invalid oemer morphology kernel"
         }
 
-        var current = morph(mask, width, height, smallSize, smallSize, erode = false)
-        current = morph(current, width, height, smallSize, smallSize, erode = true)
-        current = morph(current, width, height, morphWidth, morphHeight, erode = true)
-        return morph(current, width, height, morphWidth + 1, morphHeight + 1, erode = false)
+        var current = morphEllipse(mask, width, height, smallSize, smallSize, erode = false)
+        current = morphEllipse(current, width, height, smallSize, smallSize, erode = true)
+        current = morphEllipse(current, width, height, morphWidth, morphHeight, erode = true)
+        return morphEllipse(current, width, height, morphWidth + 1, morphHeight + 1, erode = false)
     }
 
     /** OpenCV `MORPH_ELLIPSE` kernel generation, including even-size anchor asymmetry. */
@@ -188,7 +188,11 @@ object NoteheadExtractor {
         return kernel
     }
 
-    private fun morph(
+    /**
+     * Shared OpenCV-compatible ellipse morphology primitive. Rhythm dot
+     * extraction reuses this instead of carrying a second implementation.
+     */
+    internal fun morphEllipse(
         source: BooleanArray,
         width: Int,
         height: Int,

@@ -143,7 +143,11 @@ object StaffZoneGridExtractor {
         if (nearby.size == 1) {
             val (referenceIndex, reference) = nearby.single()
             val zoneWidth = reference.lines.maxOf { it.xRight } - reference.lines.minOf { it.xLeft }
-            return shift(reference, xOffset = zoneWidth * (zoneIndex - referenceIndex), yOffset = 0.0)
+            return shift(
+                reference,
+                xOffset = zoneWidth.toDouble() * (zoneIndex - referenceIndex),
+                yOffset = 0.0
+            )
         }
 
         val (left, right) = nearby.sortedBy { it.first }
@@ -195,3 +199,4 @@ object StaffZoneGridExtractor {
                 )
             }
         )
+}

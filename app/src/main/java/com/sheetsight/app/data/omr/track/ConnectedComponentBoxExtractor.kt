@@ -45,11 +45,30 @@ package com.sheetsight.app.data.omr.track
 object ConnectedComponentBoxExtractor {
 
     /** Extracts one [BoundingBox] per 8-connected foreground blob in [mask] ([width]x[height], row-major). */
-    fun extract(mask: BooleanArray, width: Int, height: Int): List<BoundingBox> {
+    fun extract(mask: BooleanArray, width: Int, height: Int): List<BoundingBox> =
+        extractInternal(mask, width, height, retainPixels = false).map { it.boundingBox }
+
+    /**
+     * The same 8-connected traversal as [extract], retaining each blob's
+     * row-major source indices for consumers such as rotated beam geometry.
+     */
+    internal fun extractComponents(
+        mask: BooleanArray,
+        width: Int,
+        height: Int
+    ): List<ConnectedMaskComponent> =
+        extractInternal(mask, width, height, retainPixels = true)
+
+    private fun extractInternal(
+        mask: BooleanArray,
+        width: Int,
+        height: Int,
+        retainPixels: Boolean
+    ): List<ConnectedMaskComponent> {
         require(mask.size == width * height) { "mask size ${mask.size} doesn't match ${width}x$height" }
 
         val visited = BooleanArray(mask.size)
-        val boxes = mutableListOf<BoundingBox>()
+        val components = mutableListOf<ConnectedMaskComponent>()
         val stack = ArrayDeque<Int>()
 
         for (start in mask.indices) {
@@ -59,11 +78,13 @@ object ConnectedComponentBoxExtractor {
             var maxX = minX
             var minY = start / width
             var maxY = minY
+            val pixels = if (retainPixels) mutableListOf<Int>() else null
 
             visited[start] = true
             stack.addLast(start)
             while (stack.isNotEmpty()) {
                 val current = stack.removeLast()
+                pixels?.add(current)
                 val cx = current % width
                 val cy = current / width
                 if (cx < minX) minX = cx
@@ -86,12 +107,25 @@ object ConnectedComponentBoxExtractor {
                 }
             }
 
-            boxes.add(BoundingBox(left = minX, top = minY, right = maxX + 1, bottom = maxY + 1))
+            components += ConnectedMaskComponent(
+                boundingBox = BoundingBox(
+                    left = minX,
+                    top = minY,
+                    right = maxX + 1,
+                    bottom = maxY + 1
+                ),
+                sourcePixelIndices = pixels?.toIntArray() ?: IntArray(0)
+            )
         }
 
-        return boxes
+        return components
     }
 }
+
+internal data class ConnectedMaskComponent(
+    val boundingBox: BoundingBox,
+    val sourcePixelIndices: IntArray
+)
 
 /**
  * An axis-aligned bounding box with the same exclusive-right/bottom convention as

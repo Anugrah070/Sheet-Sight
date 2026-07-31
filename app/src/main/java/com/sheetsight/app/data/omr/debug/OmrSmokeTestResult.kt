@@ -28,7 +28,9 @@ enum class SmokeTestStage(val stageNumber: Int, val label: String) {
     NOTEHEAD_EXTRACTION(10, "Notehead extraction"),
     NOTE_GROUPING(11, "Note grouping"),
     SYMBOL_CLASSIFICATION(12, "Symbol classification"),
-    RHYTHM_FRAMEWORK(13, "Rhythm framework");
+    RHYTHM_FRAMEWORK(13, "Rhythm extraction"),
+    SEMANTIC_SCORE_CONSTRUCTION(14, "Semantic score construction"),
+    MUSICXML_EXPORT(15, "MusicXML export");
 
     /** e.g. "STAGE 4 (Model 1 inference)" — used verbatim in every [OMR_SMOKE] log line. */
     val logName: String get() = "STAGE $stageNumber ($label)"
@@ -70,5 +72,7 @@ data class OmrSmokeTestDiagnosticResult(
     val stageDurations: List<OmrSmokeTestStageTiming>,
     val previews: Map<SmokeTestStage, List<OmrSmokeTestPreview>>,
     val stageDetails: Map<SmokeTestStage, List<String>>,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    /** App-private Stage 15 output; the debug UI may copy it to a user-selected document. */
+    val musicXmlOutputPath: String? = null
 )

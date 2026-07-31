@@ -15,6 +15,7 @@ import com.sheetsight.app.data.omr.inference.ClassMaskExtractor
 import com.sheetsight.app.data.omr.inference.OmrClassMasks
 import com.sheetsight.app.data.omr.inference.TileInferenceRunner
 import com.sheetsight.app.data.omr.grouping.NoteGrouper
+import com.sheetsight.app.data.omr.musicxml.MusicXmlExporter
 import com.sheetsight.app.data.omr.notehead.NoteheadExtractor
 import com.sheetsight.app.data.omr.preprocessing.CanonicalImageResizer
 import com.sheetsight.app.data.omr.preprocessing.ImagePreprocessing
@@ -22,17 +23,23 @@ import com.sheetsight.app.data.omr.preprocessing.OmrModelSpec
 import com.sheetsight.app.data.omr.preprocessing.SlidingWindowTiler
 import com.sheetsight.app.data.omr.track.OmrStaffGridAssembler
 import com.sheetsight.app.data.omr.rhythm.RhythmEvidenceMasks
+import com.sheetsight.app.data.omr.rhythm.RhythmCandidate
+import com.sheetsight.app.data.omr.rhythm.RhythmExtractionResult
 import com.sheetsight.app.data.omr.rhythm.RhythmExtractor
-import com.sheetsight.app.data.omr.symbol.AssetManagerSymbolModelSource
-import com.sheetsight.app.data.omr.symbol.SvmModelKind
-import com.sheetsight.app.data.omr.symbol.SymbolClassifierLoader
-import com.sheetsight.app.data.omr.symbol.UnsupportedModelException
+import com.sheetsight.app.data.omr.rhythm.RhythmResolutionState
+import com.sheetsight.app.data.omr.rhythm.RhythmUnresolvedReason
+import com.sheetsight.app.data.omr.rhythm.RestRhythmResult
+import com.sheetsight.app.data.omr.rhythm.StemAssociationStatus
+import com.sheetsight.app.data.omr.semantic.SemanticScoreConstructor
+import com.sheetsight.app.data.omr.semantic.summary
+import com.sheetsight.app.data.omr.symbol.SymbolExtractor
 import com.sheetsight.app.di.DefaultDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.opencv.core.Mat
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -96,11 +103,14 @@ import javax.inject.Singleton
 @Singleton
 class OmrSmokeTestRunner @Inject constructor(
     private val tileInferenceRunner: TileInferenceRunner,
+    private val symbolExtractor: SymbolExtractor,
+    private val musicXmlExporter: MusicXmlExporter,
     @ApplicationContext private val context: Context,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) {
     companion object {
         private const val TAG = "OmrSmokeTest"
+        private const val UNRESOLVED_SUMMARY_KEY = "UNRESOLVED"
     }
 
     /**
@@ -327,10 +337,11 @@ class OmrSmokeTestRunner @Inject constructor(
                 calculator?.updateStage(OmrStage.POST_PROCESSING, 1.0f)
                 details[SmokeTestStage.STAFF_GRID_ASSEMBLY] = listOf(
                     "trackNums=${gridResult.trackVote.trackNums}",
-                    "barlineBoxes=${gridResult.trackVote.barlineBoxes.size}",
-                    "votes cast=${gridResult.trackVote.votes.size}",
+                    "candidateComponents=${gridResult.trackVote.barlineBoxes.size}",
+                    "tallBarlineCandidates=${gridResult.trackVote.heightRatios.size}",
                     "validatedZones=${gridResult.validatedGrid.size}",
-                    "validatedStaffs=${gridResult.validatedGrid.sumOf { it.size }}"
+                    "validatedStaffRows=${gridResult.validatedGrid.maxOfOrNull { it.size } ?: 0}",
+                    "validatedStaffCells=${gridResult.validatedGrid.sumOf { it.size }}"
                 )
                 lastCompletedStage = SmokeTestStage.STAFF_GRID_ASSEMBLY
                 if (stopAfter == SmokeTestStage.STAFF_GRID_ASSEMBLY) {
@@ -355,14 +366,15 @@ class OmrSmokeTestRunner @Inject constructor(
                 }
 
                 // STAGE 11 — Grouping only; no rhythm labels are created.
-                val chords = traceStage(SmokeTestStage.NOTE_GROUPING, timings) {
-                    NoteGrouper.group(
+                val groupingResult = traceStage(SmokeTestStage.NOTE_GROUPING, timings) {
+                    NoteGrouper.groupWithMap(
                         noteheads = noteheads,
                         stemMask = dewarped.masks.stemsRests,
                         width = dewarped.width,
                         height = dewarped.height
                     )
                 }
+                val chords = groupingResult.chords
                 details[SmokeTestStage.NOTE_GROUPING] = listOf(
                     "grouped chord count=${chords.size}"
                 )
@@ -378,57 +390,106 @@ class OmrSmokeTestRunner @Inject constructor(
                 // STAGE 12 — Validate model loading only. Missing/unsupported
                 // sklearn models are an expected documented state, never a
                 // reason to invent symbol predictions.
-                val classifierStatuses = traceStage(SmokeTestStage.SYMBOL_CLASSIFICATION, timings) {
-                    val loader = SymbolClassifierLoader(
-                        AssetManagerSymbolModelSource(context.assets)
+                val symbolResult = traceStage(SmokeTestStage.SYMBOL_CLASSIFICATION, timings) {
+                    symbolExtractor.extract(
+                        masks = dewarped.masks,
+                        grouping = groupingResult,
+                        staffGrid = gridResult.validatedGrid,
+                        noteheads = noteheads
                     )
-                    SvmModelKind.entries.map { kind ->
-                        try {
-                            loader.load(kind)
-                            "${kind.name}: loaded"
-                        } catch (error: UnsupportedModelException) {
-                            "${kind.name}: unsupported (${error.message})"
-                        }
-                    }
                 }
-                details[SmokeTestStage.SYMBOL_CLASSIFICATION] =
-                    listOf("classified symbols=0 (no fabricated predictions)") + classifierStatuses
+                details[SmokeTestStage.SYMBOL_CLASSIFICATION] = listOf(
+                    "barlines=${symbolResult.barlines.size}",
+                    "clefs=${symbolResult.clefs.groupingBy { it.label }.eachCount()}",
+                    "accidentals=${symbolResult.accidentals.groupingBy { it.label }.eachCount()}",
+                    "rests=${symbolResult.rests.groupingBy { it.label }.eachCount()}"
+                )
                 reusedDewarpedMaskPreview(previews, "dewarped_clefsKeys")?.let {
                     previews[SmokeTestStage.SYMBOL_CLASSIFICATION] =
-                        listOf(it.copy(label = "unclassified clef/accidental mask"))
+                        listOf(it.copy(label = "classified clef/accidental mask"))
                 }
                 lastCompletedStage = SmokeTestStage.SYMBOL_CLASSIFICATION
                 if (stopAfter == SmokeTestStage.SYMBOL_CLASSIFICATION) {
                     return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
                 }
 
-                // STAGE 13 — Framework records only. Beam/flag/dot extraction
-                // is not ported, so evidence is explicitly incomplete and
-                // every duration remains null.
-                val rhythmCandidates = traceStage(SmokeTestStage.RHYTHM_FRAMEWORK, timings) {
-                    RhythmExtractor.prepareCandidates(
+                // STAGE 13 — Verified stem/dot/beam/flag extraction and
+                // immutable duration results. Text summaries only: no
+                // additional page-sized debug image is retained.
+                val rhythmResult = traceStage(SmokeTestStage.RHYTHM_FRAMEWORK, timings) {
+                    RhythmExtractor.extract(
                         noteheads = noteheads,
                         chords = chords,
-                        evidence = RhythmEvidenceMasks(
-                            width = dewarped.width,
-                            height = dewarped.height,
-                            stems = dewarped.masks.stemsRests,
-                            beams = null,
-                            flags = null,
-                            dots = null
-                        )
+                        evidence = RhythmEvidenceMasks.from(
+                            masks = dewarped.masks,
+                            staffGrid = gridResult.validatedGrid,
+                            barlines = gridResult.trackVote.barlineBoxes
+                        ),
+                        rests = symbolResult.rests
                     )
                 }
-                details[SmokeTestStage.RHYTHM_FRAMEWORK] = listOf(
-                    "rhythm candidates=${rhythmCandidates.size}",
-                    "resolved durations=0 (framework only; evidence incomplete)"
-                )
-                reusedDewarpedMaskPreview(previews, "dewarped_symbols")?.let {
-                    previews[SmokeTestStage.RHYTHM_FRAMEWORK] =
-                        listOf(it.copy(label = "raw rhythm evidence source"))
-                }
+                details[SmokeTestStage.RHYTHM_FRAMEWORK] = rhythmSummary(rhythmResult)
                 lastCompletedStage = SmokeTestStage.RHYTHM_FRAMEWORK
-                diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                if (stopAfter == SmokeTestStage.RHYTHM_FRAMEWORK) {
+                    return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                }
+
+                // STAGE 14 — Image-independent score construction. Concise
+                // text summaries only; no additional full-resolution image.
+                val semanticScore = traceStage(SmokeTestStage.SEMANTIC_SCORE_CONSTRUCTION, timings) {
+                    SemanticScoreConstructor.construct(
+                        staffGrid = gridResult.validatedGrid,
+                        symbols = symbolResult,
+                        rhythm = rhythmResult
+                    )
+                }
+                val semanticSummary = semanticScore.summary()
+                details[SmokeTestStage.SEMANTIC_SCORE_CONSTRUCTION] = listOf(
+                    "systems=${semanticSummary.systems}",
+                    "staffs=${semanticSummary.staffs}",
+                    "measures=${semanticSummary.measures}",
+                    "semantic notes=${semanticSummary.notes}",
+                    "semantic chords=${semanticSummary.chords}",
+                    "semantic rests=${semanticSummary.rests}",
+                    "unresolved events=${semanticSummary.unresolvedEvents}",
+                    "validation warnings=${semanticSummary.validationWarnings}"
+                )
+                lastCompletedStage = SmokeTestStage.SEMANTIC_SCORE_CONSTRUCTION
+                if (stopAfter == SmokeTestStage.SEMANTIC_SCORE_CONSTRUCTION) {
+                    return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
+                }
+
+                // STAGE 15 — Validated MusicXML 4.0 serialization and
+                // app-private storage. Text summaries only; the XML body is
+                // deliberately never included in diagnostics.
+                val export = traceStage(SmokeTestStage.MUSICXML_EXPORT, timings) {
+                    musicXmlExporter.export(
+                        score = semanticScore,
+                        outputName = "${File(imagePath).nameWithoutExtension}-smoke"
+                    )
+                }
+                details[SmokeTestStage.MUSICXML_EXPORT] = listOf(
+                    "export success=${export.success}",
+                    "output path=${export.outputFilePath ?: "<none>"}",
+                    "file size=${export.fileSizeBytes} bytes",
+                    "measures exported=${export.exportedMeasureCount}",
+                    "notes exported=${export.exportedNoteCount}",
+                    "chords exported=${export.exportedChordCount}",
+                    "rests exported=${export.exportedRestCount}",
+                    "unresolved events omitted=${export.omittedUnresolvedEventCount}",
+                    "warning count=${export.warnings.size}",
+                    "validation result=${export.validationStatus}",
+                    "failure=${export.failureMessage ?: "<none>"}"
+                )
+                lastCompletedStage = SmokeTestStage.MUSICXML_EXPORT
+                diagnosticResult(
+                    lastCompletedStage,
+                    timings,
+                    previews,
+                    details,
+                    errorMessage = null,
+                    musicXmlOutputPath = export.outputFilePath
+                )
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 Log.e(TAG, "[OMR_SMOKE] Pipeline aborted; last completed stage=$lastCompletedStage", t)
@@ -442,6 +503,50 @@ class OmrSmokeTestRunner @Inject constructor(
                 bitmap?.recycle()
             }
         }
+
+    private fun rhythmSummary(result: RhythmExtractionResult): List<String> {
+        val unresolvedNotes = result.noteGroups.filterNot { it.isResolved() }
+        val unresolvedRests = result.rests.filterNot { it.isResolved() }
+        val assignedStems = result.noteGroups.count {
+            it.stemAssociation.status == StemAssociationStatus.ASSIGNED
+        }
+        return listOf(
+            "total note groups=${result.noteGroups.size}",
+            "groups with assigned stems=$assignedStems",
+            "beam-count distribution=${distribution(result.noteGroups) { it.beamCount?.toString() }}",
+            "flag-count distribution=${distribution(result.noteGroups) { it.flagCount?.toString() }}",
+            "dotted groups=${result.noteGroups.count { (it.dotCount ?: 0) > 0 }}",
+            "inferred-duration distribution=${distribution(result.noteGroups) { it.baseDuration?.name }}",
+            "unresolved rhythm count=${unresolvedNotes.size}",
+            "unresolved rhythm reasons=${reasonDistribution(unresolvedNotes.flatMap { it.unresolvedReasons })}",
+            "classified rests=${result.rests.size}",
+            "rest-duration distribution=${distribution(result.rests) { it.baseDuration?.name }}",
+            "dotted rests=${result.rests.count { it.dotCount == 1 }}",
+            "unresolved rest rhythm count=${unresolvedRests.size}",
+            "unresolved rest rhythm reasons=${reasonDistribution(unresolvedRests.flatMap { it.unresolvedReasons })}"
+        )
+    }
+
+    private fun <T> distribution(
+        values: List<T>,
+        key: (T) -> String?
+    ): Map<String, Int> = values
+        .groupingBy { key(it) ?: UNRESOLVED_SUMMARY_KEY }
+        .eachCount()
+        .toSortedMap()
+
+    private fun reasonDistribution(
+        reasons: List<RhythmUnresolvedReason>
+    ): Map<String, Int> = reasons
+        .groupingBy { it.name }
+        .eachCount()
+        .toSortedMap()
+
+    private fun RhythmCandidate.isResolved(): Boolean =
+        resolutionState == RhythmResolutionState.RESOLVED
+
+    private fun RestRhythmResult.isResolved(): Boolean =
+        resolutionState == RhythmResolutionState.RESOLVED
 
     /** Number of tiles [spec] will require for a `canonicalWidth`x`canonicalHeight` page — pure math, no allocation. */
     private fun tileCountFor(spec: OmrModelSpec, canonicalWidth: Int, canonicalHeight: Int): Int {
@@ -463,7 +568,8 @@ class OmrSmokeTestRunner @Inject constructor(
         timings: List<OmrSmokeTestStageTiming>,
         previews: Map<SmokeTestStage, List<OmrSmokeTestPreview>>,
         details: Map<SmokeTestStage, List<String>>,
-        errorMessage: String?
+        errorMessage: String?,
+        musicXmlOutputPath: String? = null
     ): OmrSmokeTestDiagnosticResult {
         val peakUsedMb = timings.maxOfOrNull { it.memoryAfter.javaUsedMb + it.memoryAfter.nativeUsedMb } ?: 0L
         Log.d(
@@ -476,7 +582,8 @@ class OmrSmokeTestRunner @Inject constructor(
             stageDurations = timings,
             previews = previews,
             stageDetails = details,
-            errorMessage = errorMessage
+            errorMessage = errorMessage,
+            musicXmlOutputPath = musicXmlOutputPath
         )
     }
 

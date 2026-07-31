@@ -71,6 +71,21 @@ class NoteGrouperTest {
         assertFalse(result[0].track == result[1].track)
     }
 
+    @Test
+    fun `group map marks owned components and leaves unrelated stems as background`() {
+        val width = 30
+        val height = 30
+        val note = note(0, BoundingBox(8, 15, 12, 19), width, 1)
+        val stems = BooleanArray(width * height)
+        for (y in 7 until 18) stems[y * width + 11] = true
+        for (y in 5 until 20) stems[y * width + 24] = true
+
+        val result = NoteGrouper.groupWithMap(listOf(note), stems, width, height)
+
+        assertTrue(result.groupMap[10 * width + 11] >= 0)
+        assertEquals(-1, result.groupMap[10 * width + 24])
+    }
+
     private fun note(
         id: Int,
         box: BoundingBox,

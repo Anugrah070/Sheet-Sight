@@ -1,0 +1,87 @@
+{
+  "fixtureVersion": 2,
+  "sklearnVersion": "1.2.0",
+  "featureShape": [
+    70,
+    40
+  ],
+  "supportVectorsPerPredictedClass": 24,
+  "models": [
+    {
+      "model": "clef",
+      "sourceSha256": "5ad9c21ed98242be117a69d01c8d92717c6546e89f3f0267e43e2a41a06cbfda",
+      "fixture": "clef.bin.gz",
+      "fixtureSha256": "a8696a7e758921f5749b9a31932382c2991111ab22af9e7af181101f0ed88475",
+      "vectorCount": 72,
+      "sklearnScoreCount": 1,
+      "onnxScoreCount": 2,
+      "labelCounts": {
+        "0": 25,
+        "1": 47
+      },
+      "desktopOnnx": {
+        "labelMismatches": 0,
+        "maxAbsoluteScoreDelta": 7.736088525500673e-06,
+        "binaryInverseMaxAbsoluteScoreDelta": 7.736088525500673e-06
+      }
+    },
+    {
+      "model": "sfn",
+      "sourceSha256": "9e85b4e974b2b9043a7944a8ef8346e66ee4c857488157241487c67b095682d2",
+      "fixture": "sfn.bin.gz",
+      "fixtureSha256": "ceac4ea69b4518cef6300f3903a090d8e243eaf7c92640d542e68687669da00f",
+      "vectorCount": 96,
+      "sklearnScoreCount": 3,
+      "onnxScoreCount": 3,
+      "labelCounts": {
+        "0": 25,
+        "1": 26,
+        "2": 45
+      },
+      "desktopOnnx": {
+        "labelMismatches": 0,
+        "maxAbsoluteScoreDelta": 5.131835849714328e-06,
+        "binaryInverseMaxAbsoluteScoreDelta": null
+      }
+    },
+    {
+      "model": "rests",
+      "sourceSha256": "b079103783e6c6994b3f01bff722efceb72f43ffb2122068748caec936d6077f",
+      "fixture": "rests.bin.gz",
+      "fixtureSha256": "ea3ec4b0d4bdf43a8d27b214fe1f29c0308c3736daf3a5bb2652a17acc5103d1",
+      "vectorCount": 96,
+      "sklearnScoreCount": 3,
+      "onnxScoreCount": 3,
+      "labelCounts": {
+        "0": 26,
+        "1": 43,
+        "2": 27
+      },
+      "desktopOnnx": {
+        "labelMismatches": 0,
+        "maxAbsoluteScoreDelta": 6.305094723879634e-06,
+        "binaryInverseMaxAbsoluteScoreDelta": null
+      }
+    },
+    {
+      "model": "rests_above8",
+      "sourceSha256": "3deae5548686ccd77e4bcf88408ed9068d1f049b8f4d271a93fab6ba90a3af00",
+      "fixture": "rests_above8.bin.gz",
+      "fixtureSha256": "42139947dd12b25c10ce13b24774b8c832885dc6c8263f1af5ab5fa09d7efde3",
+      "vectorCount": 120,
+      "sklearnScoreCount": 4,
+      "onnxScoreCount": 4,
+      "labelCounts": {
+        "0": 26,
+        "1": 24,
+        "2": 32,
+        "3": 38
+      },
+      "desktopOnnx": {
+        "labelMismatches": 0,
+        "maxAbsoluteScoreDelta": 5.061496742841953e-06,
+        "binaryInverseMaxAbsoluteScoreDelta": null
+      }
+    }
+  ]
+}

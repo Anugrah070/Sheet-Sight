@@ -3,16 +3,15 @@ package com.sheetsight.app.data.omr.inference
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.util.Log
-import com.sheetsight.app.data.omr.preprocessing.OmrModelSpec
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Lazily creates and caches one [OrtSession] per [OmrModelSpec]. Session
+ * Lazily creates and caches one [OrtSession] per [OnnxAssetSpec]. Session
  * creation reads the model's bytes out of `assets/` (Android has no plain
  * filesystem path into the APK) and is expensive, so each session is built
- * once and reused for every subsequent [OmrModelSpec] inference call.
+ * once and reused for every subsequent inference call.
  *
  * Sessions are not explicitly closed: they are process-lifetime singletons,
  * same as [OrtEnvironment] itself, and are freed when the process dies.
@@ -35,15 +34,15 @@ class OrtSessionProvider @Inject constructor(
     @ApplicationContext private val context: android.content.Context
 ) {
 
-    private val sessions = mutableMapOf<OmrModelSpec, OrtSession>()
+    private val sessions = mutableMapOf<String, OrtSession>()
     private val sessionLock = Any()
 
     /** Returns the (lazily created, cached) [OrtSession] for [spec]. */
-    fun sessionFor(spec: OmrModelSpec): OrtSession = synchronized(sessionLock) {
-        sessions.getOrPut(spec) { createSession(spec) }
+    fun sessionFor(spec: OnnxAssetSpec): OrtSession = synchronized(sessionLock) {
+        sessions.getOrPut(spec.assetPath) { createSession(spec) }
     }
 
-    private fun createSession(spec: OmrModelSpec): OrtSession {
+    private fun createSession(spec: OnnxAssetSpec): OrtSession {
         val modelBytes = context.assets.open(spec.assetPath).use { it.readBytes() }
         // SessionOptions is a separate native handle from the OrtSession it
         // configures; ortEnvironment.createSession(...) copies the config
@@ -125,7 +124,7 @@ class OrtSessionProvider @Inject constructor(
         /** Hard cap on intra-op threads regardless of device core count — see [buildSessionOptions]. */
         private const val MAX_INTRA_OP_THREADS = 4
 
-        /** Computed once; same budget applied to every [OmrModelSpec]'s session. */
+        /** Computed once; the same budget is applied to every ONNX session. */
         val INTRA_OP_THREAD_COUNT: Int =
             Runtime.getRuntime().availableProcessors().coerceAtMost(MAX_INTRA_OP_THREADS)
 

@@ -36,12 +36,26 @@ object NoteGrouper {
         stemMask: BooleanArray,
         width: Int,
         height: Int
-    ): List<ChordCandidate> {
+    ): List<ChordCandidate> =
+        groupWithMap(noteheads, stemMask, width, height).chords
+
+    /**
+     * Groups noteheads and retains the component occupancy required by
+     * oemer `symbol_extraction.py::parse_barlines()`/`parse_rests()`.
+     */
+    fun groupWithMap(
+        noteheads: List<NoteheadCandidate>,
+        stemMask: BooleanArray,
+        width: Int,
+        height: Int
+    ): NoteGroupingResult {
         require(width > 0 && height > 0) { "width and height must be positive" }
         require(stemMask.size == width * height) {
             "stemMask size ${stemMask.size} doesn't match ${width}x$height"
         }
-        if (noteheads.isEmpty()) return emptyList()
+        if (noteheads.isEmpty()) {
+            return NoteGroupingResult(emptyList(), IntArray(width * height) { -1 }, width, height)
+        }
 
         // -1 is background, 0 is foreground, exactly what the existing
         // 4-connected labeler consumes.
@@ -133,7 +147,23 @@ object NoteGrouper {
                 )
             }
         }
-        return chords
+        return NoteGroupingResult(
+            chords = chords,
+            groupMap = buildGroupMap(labels, groups.keys),
+            width = width,
+            height = height
+        )
+    }
+
+    private fun buildGroupMap(
+        componentLabels: IntArray,
+        ownedLabels: Set<Int>
+    ): IntArray {
+        val groupMap = IntArray(componentLabels.size) { -1 }
+        componentLabels.forEachIndexed { index, componentLabel ->
+            if (componentLabel in ownedLabels) groupMap[index] = 0
+        }
+        return groupMap
     }
 
     /**

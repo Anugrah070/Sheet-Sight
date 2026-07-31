@@ -52,10 +52,10 @@ class StaffGridValidatorTest {
     fun `a column with inconsistent y-centers is removed`() {
         // Two zones, one column.
         // Zone 0, Col 0: y=100
-        // Zone 1, Col 0: y=120 (tolerance is 0.5 * 10 = 5)
+        // Zone 1, Col 0: y=140 (>10% away from their mean).
         val grid = listOf(
             listOf(assigned(100.0, 10.0, 0, 0)),
-            listOf(assigned(120.0, 10.0, 0, 1))
+            listOf(assigned(140.0, 10.0, 0, 1))
         )
         
         val result = StaffGridValidator.validate(grid)
@@ -65,7 +65,7 @@ class StaffGridValidatorTest {
 
     @Test
     fun `a column with inconsistent unit sizes is removed`() {
-        // Tolerance ratio 0.15. Mean = 15. diff = 5. 5/15 = 0.33 > 0.15.
+        // Source tolerance ratio is 0.10.
         val grid = listOf(
             listOf(assigned(100.0, 10.0, 0, 0)),
             listOf(assigned(100.0, 20.0, 0, 1))

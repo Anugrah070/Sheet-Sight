@@ -1,0 +1,20 @@
+{
+  "fixtureVersion": 1,
+  "pillowVersion": "11.1.0",
+  "targetShape": [
+    70,
+    40
+  ],
+  "fixture": "pillow_bicubic.bin.gz",
+  "fixtureSha256": "26a96836344876d720a80c6c823dd60a6a4b856c7ebbcac0eab752055dbd4e15",
+  "cases": [
+    "random_binary_1x1",
+    "random_binary_4x7",
+    "random_binary_17x31",
+    "random_binary_35x60",
+    "random_binary_60x110",
+    "random_binary_80x140",
+    "random_binary_13x23",
+    "random_binary_29x55"
+  ]
+}

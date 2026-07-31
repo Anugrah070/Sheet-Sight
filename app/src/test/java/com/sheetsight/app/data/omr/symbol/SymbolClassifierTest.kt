@@ -2,8 +2,8 @@ package com.sheetsight.app.data.omr.symbol
 
 import com.sheetsight.app.data.omr.track.BoundingBox
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class SymbolClassifierTest {
@@ -21,55 +21,49 @@ class SymbolClassifierTest {
             mask,
             width,
             height,
-            BoundingBox(1, 2, 5, 6),
-            SvmModelDescriptor.forKind(SvmModelKind.CLEF)
+            BoundingBox(1, 2, 5, 6)
         )
 
-        assertEquals(40 * 70, feature.size)
+        assertEquals(SvmModelSpec.FEATURE_COUNT, feature.size)
         assertTrue(feature.all { it == 255f })
     }
 
     @Test
-    fun `missing trained model fails explicitly`() {
-        val loader = SymbolClassifierLoader(modelSource = SymbolModelSource { null })
-
-        try {
-            loader.load(SvmModelKind.ACCIDENTAL)
-            fail("Expected UnsupportedModelException")
-        } catch (error: UnsupportedModelException) {
-            assertTrue(error.message.orEmpty().contains("sfn.model"))
-        }
+    fun `model specifications preserve trained class-map order`() {
+        assertEquals(
+            listOf("rest_whole", "rest_quarter", "rest_8th"),
+            SvmModelSpec.REST.labels.map { it.sourceName }
+        )
+        assertEquals(
+            listOf("rest_8th", "rest_16th", "rest_32nd", "rest_64th"),
+            SvmModelSpec.REST_ABOVE_EIGHTH.labels.map { it.sourceName }
+        )
     }
 
     @Test
-    fun `loader delegates present bytes to an SVM backend`() {
-        var receivedPath: String? = null
+    fun `loader delegates once and caches classifier by model kind`() {
+        var loadCount = 0
+        val expected = SymbolClassifier {
+            SymbolClassification(
+                SvmModelKind.CLEF,
+                0,
+                ClefSymbolLabel.G_CLEF,
+                emptyList()
+            )
+        }
         val loader = SymbolClassifierLoader(
-            modelSource = SymbolModelSource { byteArrayOf(1, 2, 3) },
-            backend = SvmClassifierBackend { descriptor, bytes ->
-                receivedPath = descriptor.assetPath
-                assertEquals(3, bytes.size)
-                SymbolClassifier { "gclef" }
+            SvmClassifierBackend { spec ->
+                assertEquals(SvmModelSpec.CLEF, spec)
+                loadCount++
+                expected
             }
         )
 
-        val classifier = loader.load(SvmModelKind.CLEF)
+        val first = loader.load(SvmModelKind.CLEF)
+        val second = loader.load(SvmModelKind.CLEF)
 
-        assertEquals("sklearn_models/clef.model", receivedPath)
-        assertEquals("gclef", classifier.classify(FloatArray(40 * 70)))
-    }
-
-    @Test
-    fun `default backend rejects sklearn pickle instead of predicting`() {
-        val loader = SymbolClassifierLoader(
-            modelSource = SymbolModelSource { byteArrayOf(0x80.toByte(), 0x04) }
-        )
-
-        try {
-            loader.load(SvmModelKind.REST)
-            fail("Expected UnsupportedModelException")
-        } catch (error: UnsupportedModelException) {
-            assertTrue(error.message.orEmpty().contains("sklearn pickle"))
-        }
+        assertSame(expected, first)
+        assertSame(first, second)
+        assertEquals(1, loadCount)
     }
 }

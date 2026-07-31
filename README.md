@@ -50,7 +50,7 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   qualified coroutine dispatchers, and the OMR module.
 - **OMR pipeline integration**: The pipeline is wired from image decode
   through dewarping via `OnnxOmrEngine` → `OmrPageDewarpRunner`.
-- **OMR pipeline components (verified with 106 passing unit tests)**:
+- **OMR pipeline components (verified with 172 passing unit tests)**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
@@ -63,19 +63,37 @@ ONNX Runtime Mobile, no network dependency for any core feature.
     extracting stafflines across zones, detecting barlines, inferring
     track counts via voting, assigning segments, and validating
     consistency.
+  - **Noteheads, note grouping, and rhythm evidence**: extracted into
+    immutable candidates with explicit unresolved rhythm states.
+  - **Phase 3 symbol extraction**: geometric barlines plus Android ONNX
+    Runtime exports of oemer 0.1.8's clef, sharp/flat/natural, coarse-rest,
+    and above-eighth-rest SVMs. Real classified rest candidates are
+    produced and consumed directly by rhythm.
+  - **Phase 4 classifier verification**: all 384 deterministic
+    class-balanced support/stress vectors produce exact labels on desktop
+    and on a OnePlus CPH2707 (Android 16, ARM64). Android decision scores
+    stay within one ULP of desktop ONNX Runtime and within `8e-6` of
+    sklearn 1.2.0.
+  - **Phase 5 classified-rest rhythm integration**: typed classifier
+    results now produce deterministic rest rhythm results for quarter
+    through sixty-fourth values, including augmentation dots. The trained
+    model's combined whole-or-half class remains explicitly unresolved.
+  - **Semantic score construction**: validated staff groups, barlines,
+    classified symbols, note groups, and rhythm results are converted into
+    an immutable, image-independent `SemanticScore`. Evidence-backed
+    measures, semantic events, clef-aware pitches, accidental state, source
+    provenance, and structured validation warnings are implemented.
 
 ### In progress
-- **OMR pipeline completion**: The pipeline correctly produces a
-  validated staff grid (tracks and groups assigned), but later stages
-  (notehead extraction, symbol classification) are not yet implemented.
-- **Instrumented testing**: While unit tests are written and verified (106
-  tests), no Android instrumented tests exist yet for the OpenCV/ONNX
-  native code paths.
+- **Production integration**: semantic construction is available as a
+  tested component and developer smoke stage, but `OnnxOmrEngine` still
+  stops at its documented later-phase integration seam.
+- **Testing**: 172 JVM tests pass. The Phase 4 classifier parity
+  instrumented test passes on the connected OnePlus device.
 
 ### Planned / not yet implemented
-- Notehead extraction, note grouping, symbol classification
-  (clefs/accidentals/rests via SVM classifiers), rhythm extraction, and
-  MusicXML generation — none of this exists in the codebase yet.
+- MusicXML generation remains incomplete and is intentionally separate
+  from semantic-score construction.
 - Editor tab (notation editing) — placeholder screen only.
 - Practice tab (pitch detection, cursor tracking, metronome, looping) —
   placeholder screen only. `TarsosDSP` is not present as a dependency.
@@ -170,14 +188,14 @@ The components below orchestrate the transition from dewarped masks to a
 structured, validated staff grid, reproducing oemer's `extract()` logic.
 
 - `OmrStaffGridAssembler`: **NEW** — orchestrates the full sequence:
-  per-zone staffline extraction → barline detection → track voting →
+  eight-zone staffline extraction/alignment → barline detection → track inference →
   assignment → validation.
 - `HoughLineDetector`: wraps `cv2.HoughLinesP` with oemer's exact
   parameters; reproduces its per-axis endpoint reordering.
 - `BarlineCandidateFilter`: filters Hough segments by angle (near-vertical)
   and position (within staff envelope).
-- `TrackVotingLoop`: **NEW** — infer `num_track` (mode of barline-spanned
-  staff counts), faithfully reproducing oemer's voting logic.
+- `TrackVotingLoop`: **NEW** — infers `num_track` from connected-component
+  height/staff-unit ratios, reproducing oemer's threshold loop.
 - `StaffTrackGroupAssigner`: **NEW** — assigns track and group IDs to each
   staff segment.
 - `StaffGridValidator`: **NEW** — final consistency check across zones for
@@ -198,25 +216,21 @@ project, referenced by `OmrModelSpec`:
 |---|---|---|---|
 | `oemer_staff_and_symbols.onnx` | Staff lines + generic symbols | tensor `input`, UINT8, NHWC `[batch, 256, 256, 3]` | tensor `prediction`, FLOAT32, NHWC `[batch, 256, 256, 3]` (3 classes: background / staff / symbols) |
 | `oemer_symbol_detail.onnx` | Stems/rests, noteheads, clefs/accidentals | tensor `input`, UINT8, NHWC `[batch, 288, 288, 3]` | tensor `conv2d_25`, FLOAT32, NHWC `[batch, 288, 288, 4]` (4 classes: background / stems+rests / noteheads / clefs+keys) |
+| `svm/oemer_clef_svc.onnx` | G/F clef SVC | tensor `input`, FLOAT32 `[batch, 2800]` | integer `label` + float decision scores |
+| `svm/oemer_sfn_svc.onnx` | Sharp/flat/natural SVC | tensor `input`, FLOAT32 `[batch, 2800]` | integer `label` + float decision scores |
+| `svm/oemer_rests_svc.onnx` | Whole-or-half/quarter/eighth rest SVC | tensor `input`, FLOAT32 `[batch, 2800]` | integer `label` + float decision scores |
+| `svm/oemer_rests_above8_svc.onnx` | Eighth/16th/32nd/64th rest SVC | tensor `input`, FLOAT32 `[batch, 2800]` | integer `label` + float decision scores |
 
 These specs were confirmed by directly inspecting the two `.onnx` graph
 files with `onnxruntime`'s Python API, not assumed from oemer's
 documentation.
 
-**Where they live:** `OmrModelSpec` expects them at
-`app/src/main/assets/models/oemer_staff_and_symbols.onnx` and
-`.../oemer_symbol_detail.onnx`. **As of this codebase inspection, that
-`assets/models/` directory exists but is empty** — the two `.onnx` files
-(≈70MB and ≈37MB) are present at the project root instead, evidently kept
-out of `assets/` because of their size. They must be moved/copied into
-`app/src/main/assets/models/` before `OrtSessionProvider` can actually
-load a session — without that, any code path that reaches
-`OrtSessionProvider.sessionFor()` will fail with an asset-not-found error.
-
-Only these two segmentation models exist in the project. oemer's further
-symbol/clef/accidental sub-classification depends on separate
-**scikit-learn SVM models**, which are **not present in this project** —
-see section 10.
+**Where they live:** all six runtime models are bundled below
+`app/src/main/assets/models/`. The SVM directory also contains the oemer
+MIT notice and a manifest with source-wheel, source-pickle, conversion,
+and output hashes. Desktop ONNX labels match sklearn on all 384 Phase 4
+goldens, Pillow-compatible feature bytes are JVM-verified, and the Android
+golden test passes on a OnePlus CPH2707 (Android 16, ARM64).
 
 ---
 
@@ -230,6 +244,7 @@ see section 10.
 | `data/omr/dewarp` | Staffline geometry detection, gap-bridging, coordinate-map construction, and cubic remap — oemer's `dewarp.py` ported to Kotlin. |
 | `data/omr/staffline` | Row-density peak finding and 5-line staff grouping — oemer's `staffline_extraction.py`'s per-zone line-extraction half. |
 | `data/omr/track` | **New.** Barline-based track/system inference building blocks — oemer's `staffline_extraction.py`'s track-inference half plus `bbox.py`. Individually verified and tested; not yet assembled or wired in — see section 3.8. |
+| `data/omr/semantic` | Immutable, image-independent semantic score model; evidence-backed measure construction; pitch and accidental resolution; recognition adapters; structured validation and summaries. |
 | `di` | Hilt modules: `DatabaseModule`, `DispatcherModule` (qualified `IoDispatcher`/`DefaultDispatcher`/`MainDispatcher`), `OmrModule` (`OrtEnvironment` + `OmrEngine` binding), `RepositoryModule`. |
 | `data/local`, `data/repository`, `domain` | Room persistence, file storage, and the `Score`/`ScoreRepository` domain layer — unrelated to OMR, already functional. |
 | `ui/*` | Compose screens per tab; only Library and Preview have real functionality today. |
@@ -290,17 +305,22 @@ row density → z-score → peak find → 5-line group
 barline detection → track voting → assignment → validation
 │
 ▼
-[Notehead extraction] 📋 planned — not started
+[Notehead extraction] ✅ implemented
 │
 ▼
-[Note grouping] 📋 planned — not started
+[Note grouping + group occupancy map] ✅ implemented
 │
 ▼
-[Symbol classification (barlines/clefs/sfns/rests, 📋 planned — not started
-needs SVM models not present in this project]
+[Symbol extraction (barlines/clefs/sfns/rests)] ✅ Phase 3 implemented
+[Desktop ONNX/sklearn parity] ✅ 384 vectors, zero label mismatches
+[Android ONNX golden execution] ✅ OnePlus CPH2707, Android 16, ARM64
 │
 ▼
-[Rhythm extraction] 📋 planned — not started
+[Rhythm extraction] ✅ implemented for note groups
+[Classified-rest rhythm adapter] ✅ Phase 5 implemented
+│
+▼
+[Semantic score construction] ✅ implemented + smoke-test integrated
 │
 ▼
 [MusicXML generation] 📋 planned — not started
@@ -313,34 +333,24 @@ Score.musicXmlPath persisted → Editor / Practice / Analysis tabs
 
 ## 7. Remaining OMR work
 
-In dependency order, all **planned / not yet implemented**:
+In dependency order:
 
-1. **Wire the existing pipeline together** — `OnnxOmrEngine.recognize()`
-   already calls the integrated pipeline through `OmrStaffGridAssembler`;
-   future work must connect the resulting grid to notehead extraction.
-2. **Finish validating dewarping** — instrumented tests against real
-   OpenCV `Mat` data and real page images.
-3. **Notehead extraction** — turn the dewarped `noteheads` mask into
-   individual notehead objects (`notehead_extraction.py`).
-4. **Note grouping** — group noteheads into chords via stem direction
-   (`note_group_extraction.py`).
-5. **Symbol classification** — barlines, clefs, sharps/flats/naturals,
-   rests (`symbol_extraction.py`). Requires scikit-learn SVM models that
-   are **not currently part of this project**.
-6. **Rhythm extraction** — dots, beams, flags (`rhythm_extraction.py`).
-7. **MusicXML generation** — assemble all of the above into a MusicXML
-   document (`build_system.py`'s `MusicXMLBuilder`).
-9. Only after MusicXML exists: Editor, Practice, Analysis, Fingering,
-   Statistics tabs can move past their current placeholder state.
+1. **Finish Android-native validation** — instrumented tests against real
+   OpenCV/ONNX Runtime and real page images.
+2. **Wire the tested semantic constructor into the production engine** when
+   the end-to-end pipeline integration phase is explicitly authorized.
+3. **MusicXML generation** remains a later, separate phase and has not been
+   started.
 
 ---
 
 ## 8. Testing
 
-The OMR pipeline is verified with **106 passing JVM unit tests**
+The OMR pipeline is verified with **172 passing JVM unit tests**
 (`app/src/test/...`). These verify the mathematical correctness of
 preprocessing, inference merging, mask extraction, full dewarping logic,
-staff identification, track voting, and final grid validation.
+staff identification, track voting, final grid validation, and typed
+classified-rest rhythm integration.
 
 | Test file | Covers |
 |---|---|
@@ -366,6 +376,29 @@ staff identification, track voting, and final grid validation.
 | `track/NearestStaffUnitSizeResolverTest` | Nearest-staff lookup logic. |
 | `track/TrackVotingLoopTest` | Track-number inference via barline voting. |
 | `track/StaffGridValidatorTest` | Grid consistency validation. |
+| `grouping/NoteGrouperTest` | Chord grouping and occupancy-map regression. |
+| `symbol/SymbolClassifierTest` | Feature shape, class maps, loader caching. |
+| `symbol/MusicalBarlineExtractorTest` | Group exclusion and symbol overlap selection. |
+| `symbol/RestExtractorTest` | Coarse/refined routing, provenance validation, dot preservation, and rhythm handoff. |
+| `symbol/PillowSvmFeatureParityTest` | Exact 40×70 feature bytes against Pillow 11.1.0. |
+| `rhythm/RhythmExtractorTest` | Note/rest durations, stems, beams, flags, dots, ambiguity, provenance, and ordering. |
+| `semantic/MeasureConstructorTest` | Simple, multiple, pickup, and incomplete-final evidence-backed measures. |
+| `semantic/PitchAndAccidentalsTest` | Treble/bass/ledger pitch mapping and key/local/natural/reset accidental state. |
+| `semantic/SemanticScoreConstructorTest` | Chords, chord pitches, rests, clef changes, accidentals, geometry regression, and deterministic output. |
+| `semantic/SemanticValidatorTest` | Duplicate assignments and unresolved pitch/duration warnings. |
+
+`OemerSvmParityInstrumentedTest` contains 384 class-balanced support/stress
+vectors for the four SVMs. It passes on a OnePlus CPH2707 running Android 16
+on ARM64: all labels are exact, all scores remain within the `8e-6` sklearn
+bound, and the 10 scores that differ from desktop ONNX Runtime differ by
+only one ULP (4 coarse-rest and 6 above-eighth-rest scores out of 1,200).
+
+The developer OMR smoke test's rhythm stage emits text-only summaries for
+classified-rest count, rest-duration distribution, dotted-rest count, and
+unresolved-rest count/reasons in addition to the existing note-group rhythm
+fields. Stage 14 adds concise semantic systems, staffs, measures, note,
+chord, rest, unresolved-event, and validation-warning counts. It retains no
+additional full-resolution debug image.
 
 No tests exist yet for: `OmrPreprocessor`, `OmrTensorFactory`,
 `OrtSessionProvider`, `TileInferenceRunner`, `PredictionMapMerger`,
@@ -381,10 +414,9 @@ Confirmed from the project's own Gradle configuration:
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — **106 tests passing**.
-- **Before running OMR-related code**: copy the two `.onnx` model files
-  into `app/src/main/assets/models/` (see section 4) — they are not
-  currently there.
+- **Tests**: `./gradlew testDebugUnitTest` — **172 tests passing**.
+- **Model assets**: the two segmentation models and four SVM ONNX exports
+  are already under `app/src/main/assets/models/`.
 
 ---
 
@@ -421,19 +453,16 @@ Confirmed from the project's own Gradle configuration:
   silently under-merge diagonally-touching barline candidates. Hole-contour
   semantics of `RETR_TREE` are also knowingly not reproduced (no
   barline-shaped blob realistically has a hole).
-- **Known unresolved dependency gap: SVM classifier models.** oemer's own
-  symbol/clef/accidental/rest sub-classification depends on scikit-learn
-  SVM models (`sklearn_models/*.model` in the reference project). This
-  project has not sourced, converted, or integrated any equivalent for
-  Android — symbol classification (section 7, item 6) cannot proceed
-  without resolving this first.
-- **Known gap: ONNX model assets are not checked into `assets/`** as
-  currently laid out in this codebase snapshot — see section 4.
-- **No androidTest coverage for OMR code.** Every OMR test is a JVM unit
-  test against synthetic data; nothing has exercised the real OpenCV/ONNX
-  Runtime native libraries as they'd actually run on-device. This also
-  applies to the newest `data/omr/track` components, none of which touch
-  a real `cv2.HoughLinesP`/`cv2.findContours` call yet.
+- **Phase 4 classifier gate is closed.** Desktop and Android ONNX Runtime
+  produce identical labels to sklearn for all 384 deterministic goldens.
+  The maximum desktop-to-sklearn score delta is
+  `7.736088525500673e-6`. On the OnePlus ARM64 device, 10 of 1,200 scores
+  differ from desktop x86-64 by one ULP, with a maximum absolute delta of
+  `2.384185791015625e-7`; the instrumented gate enforces a one-ULP maximum.
+- **On-device OMR coverage is still focused.** Phase 4 now exercises the
+  real ONNX Runtime native library on-device. The OpenCV-backed preprocessing
+  and newest `data/omr/track` components still lack device tests using real
+  `cv2.HoughLinesP`/`cv2.findContours` calls.
 - **`OnnxOmrEngine`/`OmrRepository` are intentionally still stubs.** Their
   `NotImplementedError` throws are not bugs — they're the explicit,
   documented boundary between "components exist" and "pipeline is wired

@@ -1,12 +1,15 @@
 package com.sheetsight.app.ui.debug
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sheetsight.app.data.local.ScoreFileStorage
 import com.sheetsight.app.data.omr.OmrProgressListener
 import com.sheetsight.app.data.omr.OmrProgressUpdate
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestDiagnosticResult
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestRunner
 import com.sheetsight.app.data.omr.debug.SmokeTestStage
+import com.sheetsight.app.di.IoDispatcher
 import com.sheetsight.app.domain.model.Score
 import com.sheetsight.app.domain.repository.ScoreRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,7 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.CancellationException
 import javax.inject.Inject
 
@@ -35,13 +40,18 @@ data class OmrSmokeTestUiState(
     val stopAfter: SmokeTestStage = SmokeTestStage.INPUT_DECODE,
     val diagnostic: OmrSmokeTestDiagnosticResult? = null,
     val progress: OmrProgressUpdate? = null,
-    val error: String? = null
+    val error: String? = null,
+    val isSavingMusicXml: Boolean = false,
+    val musicXmlSaveMessage: String? = null,
+    val musicXmlSaveError: String? = null
 )
 
 @HiltViewModel
 class OmrSmokeTestViewModel @Inject constructor(
     private val scoreRepository: ScoreRepository,
-    private val smokeTestRunner: OmrSmokeTestRunner
+    private val smokeTestRunner: OmrSmokeTestRunner,
+    private val scoreFileStorage: ScoreFileStorage,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OmrSmokeTestUiState())
@@ -62,7 +72,10 @@ class OmrSmokeTestViewModel @Inject constructor(
                 stopAfter = SmokeTestStage.INPUT_DECODE, // conservative reset per score
                 diagnostic = null,
                 progress = null,
-                error = null
+                error = null,
+                isSavingMusicXml = false,
+                musicXmlSaveMessage = null,
+                musicXmlSaveError = null
             )
         }
     }
@@ -95,9 +108,51 @@ class OmrSmokeTestViewModel @Inject constructor(
         runSmokeTest(score.originalFilePath, nextStage)
     }
 
+    /** Copies Stage 15's app-private file to the document selected by the developer. */
+    fun onPersistentMusicXmlTargetSelected(destinationUri: Uri) {
+        val sourcePath = _uiState.value.diagnostic?.musicXmlOutputPath ?: return
+        if (_uiState.value.isSavingMusicXml) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSavingMusicXml = true,
+                    musicXmlSaveMessage = null,
+                    musicXmlSaveError = null
+                )
+            }
+            try {
+                val bytes = withContext(ioDispatcher) {
+                    scoreFileStorage.copyMusicXmlToDocument(sourcePath, destinationUri)
+                }
+                _uiState.update {
+                    it.copy(
+                        musicXmlSaveMessage = "Saved persistent MusicXML copy ($bytes bytes)."
+                    )
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _uiState.update {
+                    it.copy(
+                        musicXmlSaveError = "Could not save MusicXML: ${t.message ?: t::class.java.simpleName}"
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isSavingMusicXml = false) }
+            }
+        }
+    }
+
     private fun runSmokeTest(imagePath: String, stopAfter: SmokeTestStage) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isRunning = true, error = null, progress = null) }
+            _uiState.update {
+                it.copy(
+                    isRunning = true,
+                    error = null,
+                    progress = null,
+                    musicXmlSaveMessage = null,
+                    musicXmlSaveError = null
+                )
+            }
             try {
                 val result = smokeTestRunner.run(imagePath, stopAfter, object : OmrProgressListener {
                     override fun onProgressUpdate(update: OmrProgressUpdate) {

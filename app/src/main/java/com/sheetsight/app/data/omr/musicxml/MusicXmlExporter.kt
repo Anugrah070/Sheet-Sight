@@ -52,6 +52,8 @@ class MusicXmlExporter @Inject constructor(
         outputFilePath = outputFilePath,
         fileSizeBytes = fileSizeBytes,
         exportedMeasureCount = exportedMeasureCount,
+        exportedBarlineCount = exportedBarlineCount,
+        exportedBarlineLocations = exportedBarlineLocations,
         exportedNoteCount = exportedNoteCount,
         exportedChordCount = exportedChordCount,
         exportedRestCount = exportedRestCount,

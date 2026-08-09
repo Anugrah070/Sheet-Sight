@@ -1,5 +1,8 @@
 package com.sheetsight.app.ui.navigation
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -38,45 +41,75 @@ fun SheetSightNavHost(
     val showBottomBar = currentRoute != Destination.Preview.ROUTE_PATTERN &&
             currentRoute != Destination.OmrSmokeTest.route
 
-    Scaffold(
-        bottomBar = {
-            if (showBottomBar) {
-                SheetSightBottomBar(navController)
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val useNavigationRail = showBottomBar && maxWidth > maxHeight
+
+        Scaffold(
+            bottomBar = {
+                if (showBottomBar && !useNavigationRail) {
+                    SheetSightBottomBar(navController)
+                }
             }
-        }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Destination.Library.route,
-            modifier = Modifier.padding(if (showBottomBar) innerPadding else androidx.compose.foundation.layout.PaddingValues(0.dp))
-        ) {
-            composable(Destination.Library.route) {
-                LibraryScreen(
-                    onOpenScore = { scoreId ->
-                        navController.navigate(Destination.Preview(scoreId).route)
+        ) { innerPadding ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        if (showBottomBar) innerPadding
+                        else androidx.compose.foundation.layout.PaddingValues(0.dp)
+                    )
+            ) {
+                if (useNavigationRail) {
+                    SheetSightNavigationRail(navController)
+                }
+                NavHost(
+                    navController = navController,
+                    startDestination = Destination.Library.route,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    composable(Destination.Library.route) {
+                        LibraryScreen(
+                            onOpenScore = { scoreId ->
+                                navController.navigate(Destination.Preview(scoreId).route)
+                            }
+                        )
                     }
-                )
-            }
-            composable(Destination.Editor.route) { EditorScreen() }
-            composable(Destination.Practice.route) { PracticeScreen() }
-            composable(Destination.Analysis.route) { AnalysisScreen() }
-            composable(Destination.Settings.route) {
-                SettingsScreen(
-                    onOpenOmrSmokeTest = { navController.navigate(Destination.OmrSmokeTest.route) }
-                )
-            }
-            composable(
-                route = Destination.Preview.ROUTE_PATTERN,
-                arguments = listOf(navArgument("scoreId") { type = NavType.LongType })
-            ) { backStackEntry ->
-                val scoreId = backStackEntry.arguments?.getLong("scoreId") ?: return@composable
-                PreviewScreen(
-                    scoreId = scoreId,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable(Destination.OmrSmokeTest.route) {
-                OmrSmokeTestScreen(onBack = { navController.popBackStack() })
+                    composable(
+                        route = Destination.Editor.ROUTE_PATTERN,
+                        arguments = listOf(
+                            navArgument("scoreId") {
+                                type = NavType.LongType
+                                defaultValue = -1L
+                            }
+                        )
+                    ) { backStackEntry ->
+                        val scoreId = backStackEntry.arguments?.getLong("scoreId")?.takeIf { it > 0L }
+                        EditorScreen(scoreId = scoreId)
+                    }
+                    composable(Destination.Practice.route) { PracticeScreen() }
+                    composable(Destination.Analysis.route) { AnalysisScreen() }
+                    composable(Destination.Settings.route) {
+                        SettingsScreen(
+                            onOpenOmrSmokeTest = { navController.navigate(Destination.OmrSmokeTest.route) }
+                        )
+                    }
+                    composable(
+                        route = Destination.Preview.ROUTE_PATTERN,
+                        arguments = listOf(navArgument("scoreId") { type = NavType.LongType })
+                    ) { backStackEntry ->
+                        val scoreId = backStackEntry.arguments?.getLong("scoreId") ?: return@composable
+                        PreviewScreen(
+                            scoreId = scoreId,
+                            onBack = { navController.popBackStack() },
+                            onOpenEditor = { recognizedScoreId ->
+                                navController.navigate(Destination.Editor.forScore(recognizedScoreId))
+                            }
+                        )
+                    }
+                    composable(Destination.OmrSmokeTest.route) {
+                        OmrSmokeTestScreen(onBack = { navController.popBackStack() })
+                    }
+                }
             }
         }
     }

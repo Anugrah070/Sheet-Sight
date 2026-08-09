@@ -1,6 +1,8 @@
 package com.sheetsight.app.data.local
 
 import android.content.ContentResolver
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -50,6 +52,43 @@ class ScoreFileStorage @Inject constructor(
         ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
             PdfRenderer(pfd).use { renderer -> renderer.pageCount }
         }
+
+    /**
+     * Renders one imported PDF page to a lossless, app-cache PNG suitable for
+     * the single-page OMR pipeline. The caller owns the returned temporary
+     * file and should delete it after recognition finishes.
+     */
+    fun renderPdfPageForOmr(pdfPath: String, pageIndex: Int, scoreId: Long): File {
+        val source = File(pdfPath)
+        require(source.isFile) { "The imported PDF is missing or unreadable." }
+
+        val omrCacheDir = File(context.cacheDir, "omr-pages").apply { mkdirs() }
+        val target = File(omrCacheDir, "score-$scoreId-page-${pageIndex + 1}.png")
+        ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+            PdfRenderer(pfd).use { renderer ->
+                require(pageIndex in 0 until renderer.pageCount) { "The selected PDF page does not exist." }
+                renderer.openPage(pageIndex).use { page ->
+                    val bitmap = Bitmap.createBitmap(
+                        page.width * OMR_PDF_RENDER_SCALE,
+                        page.height * OMR_PDF_RENDER_SCALE,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    try {
+                        bitmap.eraseColor(Color.WHITE)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                        target.outputStream().use { output ->
+                            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                                "Could not prepare the PDF page for recognition."
+                            }
+                        }
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+            }
+        }
+        return target
+    }
 
     /**
      * Writes UTF-8 MusicXML bytes beside imported scores in app-private storage.
@@ -108,6 +147,10 @@ class ScoreFileStorage @Inject constructor(
 
     private fun sanitizeFileName(name: String): String =
         name.replace(Regex("[/\\\\:*?\"<>|]"), "_").ifBlank { "score" }
+
+    private companion object {
+        const val OMR_PDF_RENDER_SCALE = 2
+    }
 
     /**
      * Deletes the file at [path] if it exists, under the app-local scores

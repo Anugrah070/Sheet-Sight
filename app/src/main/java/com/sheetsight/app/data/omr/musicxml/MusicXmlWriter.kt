@@ -31,7 +31,14 @@ import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
-/** Deterministic, Android-UI-independent MusicXML 4.0 serializer. */
+/**
+ * Deterministic, Android-UI-independent MusicXML 4.0 serializer.
+ *
+ * Staff simultaneity, voices, cursor movement, and checkpoint balancing are
+ * verified against oemer 0.1.8 `build_system.py::Measure.align_symbols` and
+ * `MusicXMLBuilder.build` (wheel lines 251-385 and 607-665). The upstream
+ * `ete.py` delegates MusicXML construction to that builder.
+ */
 object MusicXmlWriter {
     const val DEFAULT_PART_NAME = "Music"
 
@@ -84,18 +91,21 @@ object MusicXmlWriter {
             }
             render.exportedMeasureCount++
 
+            if (index > 0 && measureContexts[index - 1].system.id != context.system.id) {
+                measureElement.child("print").setAttribute("new-system", "yes")
+            }
+
             val staffCount = context.system.staffs.size
             if (index == 0 || staffCount != previousStaffCount) {
                 measureElement.child("attributes").apply {
                     if (index == 0) child("divisions", divisions)
                     child("staves", staffCount)
+                    if (staffCount > 1) child("part-symbol", "brace")
                 }
             }
             previousStaffCount = staffCount
 
-            context.measure.events.forEach { event ->
-                render.writeEvent(measureElement, context, event)
-            }
+            render.writeMeasure(measureElement, context)
         }
 
         val generatedErrors = validateGeneratedDocument(document, part.id, render)
@@ -106,6 +116,8 @@ object MusicXmlWriter {
         return MusicXmlSerializationResult(
             xml = serializeDocument(document),
             exportedMeasureCount = render.exportedMeasureCount,
+            exportedBarlineCount = render.exportedBarlineCount,
+            exportedBarlineLocations = render.exportedBarlineLocations.toList(),
             exportedNoteCount = render.exportedNoteCount,
             exportedChordCount = render.exportedChordCount,
             exportedRestCount = render.exportedRestCount,
@@ -121,6 +133,8 @@ object MusicXmlWriter {
     ) = MusicXmlSerializationResult(
         xml = null,
         exportedMeasureCount = 0,
+        exportedBarlineCount = 0,
+        exportedBarlineLocations = emptyList(),
         exportedNoteCount = 0,
         exportedChordCount = 0,
         exportedRestCount = 0,
@@ -261,6 +275,38 @@ object MusicXmlWriter {
         return DurationInfo(duration, type, dots)
     }
 
+    private fun durationInfoForUnits(units: Long, divisions: Long): DurationInfo? {
+        if (units <= 0L) return null
+        val types = listOf(
+            1L to "whole",
+            2L to "half",
+            4L to "quarter",
+            8L to "eighth",
+            16L to "16th",
+            32L to "32nd",
+            64L to "64th"
+        )
+        types.forEach { (baseDenominator, type) ->
+            for (dots in 0..8) {
+                val dotPower = 1L shl dots
+                val numerator = dotPower * 2L - 1L
+                val denominator = baseDenominator * dotPower
+                val scaledNumerator = numerator * 4L * divisions
+                if (scaledNumerator % denominator != 0L || scaledNumerator / denominator != units) continue
+                val divisor = gcd(numerator, denominator)
+                return DurationInfo(
+                    SemanticDuration(
+                        (numerator / divisor).toInt(),
+                        (denominator / divisor).toInt()
+                    ),
+                    type,
+                    dots
+                )
+            }
+        }
+        return null
+    }
+
     private fun divisionsFor(durations: Collection<DurationInfo>): Long =
         durations.fold(1L) { divisions, info ->
             val quarterNumerator = info.duration.numerator.toLong() * 4L
@@ -296,6 +342,18 @@ object MusicXmlWriter {
         }
         if (measures.length != render.exportedMeasureCount) {
             errors += "generated measure count does not match export accounting"
+        }
+        val barlines = document.getElementsByTagName("barline")
+        val barlineLocations = (0 until barlines.length).map { index ->
+            (barlines.item(index) as Element).getAttribute("location")
+        }
+        if (barlines.length != render.exportedBarlineCount ||
+            barlineLocations != render.exportedBarlineLocations
+        ) {
+            errors += "generated barline count/locations do not match export accounting"
+        }
+        if (barlineLocations.any { it !in setOf("left", "middle", "right") }) {
+            errors += "generated barline has an unsupported location"
         }
 
         var generatedNoteCount = 0
@@ -363,10 +421,91 @@ object MusicXmlWriter {
         val warnings: MutableList<MusicXmlExportWarning>
     ) {
         var exportedMeasureCount = 0
+        var exportedBarlineCount = 0
+        val exportedBarlineLocations = mutableListOf<String>()
         var exportedNoteCount = 0
         var exportedChordCount = 0
         var exportedRestCount = 0
         val omittedSemanticIds = linkedSetOf<String>()
+        private var cursorUnits = 0L
+
+        fun writeMeasure(parent: Element, context: MeasureContext) {
+            cursorUnits = 0L
+            val rhythmInputs = context.measure.events.mapIndexedNotNull { sourceOrder, event ->
+                if (event !is SemanticChord && event !is SemanticRest) return@mapIndexedNotNull null
+                val duration = durationByEventId[event.id] ?: return@mapIndexedNotNull null
+                val staffIndex = context.system.staffs.indexOfFirst { it.id == event.staffId }
+                if (staffIndex < 0) return@mapIndexedNotNull null
+                MusicXmlRhythmInput(
+                    eventId = event.id,
+                    staffIndex = staffIndex,
+                    horizontalPosition = event.horizontalPosition,
+                    durationUnits = duration.units(divisions),
+                    sourceOrder = sourceOrder
+                )
+            }
+            val tolerance = context.system.staffs
+                .mapNotNull { it.alignmentUnitSize?.takeIf { size -> size > 0.0 } }
+                .average()
+                .takeUnless { it.isNaN() }
+                ?: 1.0
+            val aligned = MusicXmlRhythmPlanner.plan(
+                rhythmInputs,
+                context.system.staffs.size,
+                tolerance
+            )
+            val plan = if (aligned.entries.all { durationInfoForUnits(it.durationUnits, divisions) != null }) {
+                aligned
+            } else {
+                warnings += MusicXmlExportWarning(
+                    MusicXmlExportWarningCode.BEAT_ALIGNMENT_UNREPRESENTABLE,
+                    "${context.measure.id} requires a compensating duration with no supported MusicXML type; " +
+                        "staff cursor separation was preserved without beat adjustment",
+                    context.measure.id
+                )
+                MusicXmlRhythmPlanner.plan(
+                    rhythmInputs,
+                    context.system.staffs.size,
+                    tolerance,
+                    adjustBeats = false
+                )
+            }
+            val plannedByEventId = plan.entries
+                .filter { it.eventId != null }
+                .associateBy { requireNotNull(it.eventId) }
+            val items = buildList {
+                context.measure.events.forEachIndexed { sourceOrder, event ->
+                    add(PlannedRenderItem(event.horizontalPosition, sourceOrder, event, plannedByEventId[event.id]))
+                }
+                plan.entries.filter { it.generatedRest }.forEach { entry ->
+                    add(PlannedRenderItem(entry.horizontalPosition, entry.sourceOrder, null, entry))
+                }
+            }.sortedWith(
+                compareBy<PlannedRenderItem> { it.horizontalPosition }
+                    .thenBy { it.sourceOrder }
+            )
+
+            items.forEach { item ->
+                val entry = item.rhythmEntry
+                val event = item.event
+                if (entry == null) {
+                    if (event != null) writeEvent(parent, context, event)
+                    return@forEach
+                }
+                val duration = requireNotNull(durationInfoForUnits(entry.durationUnits, divisions))
+                moveCursor(parent, entry.onsetUnits)
+                val emitted = when {
+                    entry.generatedRest -> {
+                        writeGeneratedRest(parent, entry.staffIndex + 1, duration, entry.voice)
+                        true
+                    }
+                    event is SemanticChord -> writeChord(parent, context, event, duration, entry.voice)
+                    event is SemanticRest -> writeRest(parent, context, event, duration, entry.voice)
+                    else -> false
+                }
+                if (emitted) cursorUnits += entry.durationUnits
+            }
+        }
 
         fun writeEvent(parent: Element, context: MeasureContext, event: SemanticEvent) {
             when (event) {
@@ -382,6 +521,14 @@ object MusicXmlWriter {
                     "${event.id} has no event-level duration; semantic notes are only safely exportable inside a chord"
                 )
             }
+        }
+
+        private fun moveCursor(parent: Element, targetUnits: Long) {
+            when {
+                targetUnits < cursorUnits -> parent.child("backup").child("duration", cursorUnits - targetUnits)
+                targetUnits > cursorUnits -> parent.child("forward").child("duration", targetUnits - cursorUnits)
+            }
+            cursorUnits = targetUnits
         }
 
         private fun writeClef(parent: Element, context: MeasureContext, event: SemanticClefChange) {
@@ -435,9 +582,20 @@ object MusicXmlWriter {
             }
         }
 
-        private fun writeChord(parent: Element, context: MeasureContext, chord: SemanticChord) {
-            if (staffNumber(context.system, chord.staffId) == null) return unknownStaff(chord)
-            val duration = checkedDuration(chord.id, chord.duration, chord.rhythmState) ?: return
+        private fun writeChord(
+            parent: Element,
+            context: MeasureContext,
+            chord: SemanticChord,
+            plannedDuration: DurationInfo? = null,
+            voice: Int = 1
+        ): Boolean {
+            if (staffNumber(context.system, chord.staffId) == null) {
+                unknownStaff(chord)
+                return false
+            }
+            val duration = plannedDuration
+                ?: checkedDuration(chord.id, chord.duration, chord.rhythmState)
+                ?: return false
             val exportableNotes = chord.notes.mapNotNull { note ->
                 checkedNote(context, note)
             }
@@ -455,7 +613,7 @@ object MusicXmlWriter {
                         chord.id
                     )
                 }
-                return
+                return false
             }
 
             exportableNotes.forEachIndexed { index, resolved ->
@@ -468,6 +626,7 @@ object MusicXmlWriter {
                     child("octave", pitch.octave)
                 }
                 noteElement.child("duration", duration.units(divisions))
+                noteElement.child("voice", voice)
                 noteElement.child("type", duration.type)
                 repeat(duration.dots) { noteElement.child("dot") }
                 if (resolved.note.sourceRefs.any { it.kind == SemanticSourceKind.ACCIDENTAL }) {
@@ -483,6 +642,7 @@ object MusicXmlWriter {
                 exportedNoteCount++
             }
             exportedChordCount++
+            return true
         }
 
         private fun checkedNote(context: MeasureContext, note: SemanticNote): ResolvedNote? {
@@ -519,12 +679,43 @@ object MusicXmlWriter {
             return ResolvedNote(note, staffNumber)
         }
 
-        private fun writeRest(parent: Element, context: MeasureContext, rest: SemanticRest) {
-            val staffNumber = staffNumber(context.system, rest.staffId) ?: return unknownStaff(rest)
-            val duration = checkedDuration(rest.id, rest.duration, rest.rhythmState) ?: return
+        private fun writeRest(
+            parent: Element,
+            context: MeasureContext,
+            rest: SemanticRest,
+            plannedDuration: DurationInfo? = null,
+            voice: Int = 1
+        ): Boolean {
+            val staffNumber = staffNumber(context.system, rest.staffId)
+            if (staffNumber == null) {
+                unknownStaff(rest)
+                return false
+            }
+            val duration = plannedDuration
+                ?: checkedDuration(rest.id, rest.duration, rest.rhythmState)
+                ?: return false
             parent.child("note").apply {
                 child("rest")
                 child("duration", duration.units(divisions))
+                child("voice", voice)
+                child("type", duration.type)
+                repeat(duration.dots) { child("dot") }
+                child("staff", staffNumber)
+            }
+            exportedRestCount++
+            return true
+        }
+
+        private fun writeGeneratedRest(
+            parent: Element,
+            staffNumber: Int,
+            duration: DurationInfo,
+            voice: Int
+        ) {
+            parent.child("note").apply {
+                child("rest")
+                child("duration", duration.units(divisions))
+                child("voice", voice)
                 child("type", duration.type)
                 repeat(duration.dots) { child("dot") }
                 child("staff", staffNumber)
@@ -557,14 +748,14 @@ object MusicXmlWriter {
         }
 
         private fun writeBarline(parent: Element, measure: SemanticMeasure, event: SemanticBarline) {
-            parent.child("barline").setAttribute(
-                "location",
-                when (event.horizontalPosition) {
-                    measure.boundary.left -> "left"
-                    measure.boundary.right -> "right"
-                    else -> "middle"
-                }
-            )
+            val location = when (event.horizontalPosition) {
+                measure.boundary.left -> "left"
+                measure.boundary.right -> "right"
+                else -> "middle"
+            }
+            parent.child("barline").setAttribute("location", location)
+            exportedBarlineCount++
+            exportedBarlineLocations += location
         }
 
         private fun staffNumber(system: SemanticSystem, staffId: String?): Int? =
@@ -648,6 +839,13 @@ object MusicXmlWriter {
         val duration: SemanticDuration,
         val type: String,
         val dots: Int
+    )
+
+    private data class PlannedRenderItem(
+        val horizontalPosition: Int,
+        val sourceOrder: Int,
+        val event: SemanticEvent?,
+        val rhythmEntry: MusicXmlRhythmEntry?
     )
 
     private data class ResolvedNote(

@@ -74,5 +74,40 @@ data class OmrSmokeTestDiagnosticResult(
     val stageDetails: Map<SmokeTestStage, List<String>>,
     val errorMessage: String? = null,
     /** App-private Stage 15 output; the debug UI may copy it to a user-selected document. */
-    val musicXmlOutputPath: String? = null
+    val musicXmlOutputPath: String? = null,
+    /** Populated only after the complete pipeline and Editor round trip succeed. */
+    val accuracyReport: OmrAccuracyDiagnosticReport? = null
+)
+
+/** Fixed-page, count-first accuracy evidence; it deliberately contains no full-resolution image. */
+data class OmrAccuracyDiagnosticReport(
+    val pageName: String,
+    val inputResolution: String,
+    val inputOrientation: String,
+    val canonicalResolution: String,
+    val tileCounts: Map<String, Int>,
+    val modelInferenceTimingsMs: Map<String, Long>,
+    val staffCount: Int,
+    val trackVoteRawBarlineCount: Int,
+    val trackVoteAcceptedBarlineCount: Int,
+    val musicalBarlineFilterCounts: Map<String, Int>,
+    val musicalBarlineCount: Int,
+    val barlineXsBySystem: Map<Int, List<Int>>,
+    val noteheadCount: Int,
+    val groupedNoteChordCount: Int,
+    val clefCounts: Map<String, Int>,
+    val accidentalCounts: Map<String, Int>,
+    val restCounts: Map<String, Int>,
+    val rhythmResolvedCount: Int,
+    val rhythmUnresolvedCount: Int,
+    val semanticNoteCount: Int,
+    val semanticMeasuresBySystem: Map<String, List<String>>,
+    val unresolvedSemanticEventCount: Int,
+    val omittedUnresolvedEventCount: Int,
+    val musicXmlMeasureCount: Int,
+    val musicXmlBarlineCount: Int,
+    val musicXmlBarlineLocations: List<String>,
+    val editorParsedMeasureCount: Int,
+    val editorRenderedMeasureCount: Int,
+    val musicXmlExportWarnings: List<String>
 )

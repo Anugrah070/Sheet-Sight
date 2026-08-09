@@ -17,6 +17,7 @@ enum class MusicXmlExportWarningCode {
     UNKNOWN_STAFF,
     EMPTY_CHORD,
     TOP_LEVEL_NOTE_UNSUPPORTED,
+    BEAT_ALIGNMENT_UNREPRESENTABLE,
     STORAGE_WRITE_FAILED
 }
 
@@ -29,6 +30,8 @@ data class MusicXmlExportWarning(
 data class MusicXmlSerializationResult(
     val xml: String?,
     val exportedMeasureCount: Int,
+    val exportedBarlineCount: Int,
+    val exportedBarlineLocations: List<String>,
     val exportedNoteCount: Int,
     val exportedChordCount: Int,
     val exportedRestCount: Int,
@@ -42,6 +45,8 @@ data class MusicXmlExportResult(
     val outputFilePath: String?,
     val fileSizeBytes: Long,
     val exportedMeasureCount: Int,
+    val exportedBarlineCount: Int,
+    val exportedBarlineLocations: List<String>,
     val exportedNoteCount: Int,
     val exportedChordCount: Int,
     val exportedRestCount: Int,

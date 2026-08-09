@@ -28,7 +28,15 @@ data class SemanticStaff(
     val id: String,
     val index: Int,
     val systemId: String,
-    val source: SemanticSourceRef
+    val source: SemanticSourceRef,
+    /**
+     * Staff-space size retained only for horizontal symbol alignment.
+     *
+     * Verified against oemer 0.1.8 `staffline_extraction.py::Staff.unit_size`
+     * and `build_system.py::Measure.align_symbols`, which clusters symbols
+     * whose x centers differ by less than the global staff unit size.
+     */
+    val alignmentUnitSize: Double? = null
 )
 
 data class SemanticMeasure(

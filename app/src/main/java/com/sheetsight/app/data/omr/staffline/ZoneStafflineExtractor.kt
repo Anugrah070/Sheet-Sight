@@ -3,6 +3,7 @@ package com.sheetsight.app.data.omr.staffline
 import com.sheetsight.app.data.omr.dewarp.DewarpedPage
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.round
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -32,17 +33,16 @@ import kotlin.math.sqrt
  *     are labelled FIRST..FIFTH top-to-bottom, matching oemer's LineLabel
  *     (FIRST = smallest y / topmost line, FIFTH = largest y / bottommost).
  *
- * **Fidelity note.** Steps 1–3 are exact and golden-tested. Step 4's
- * rules and constants ([MAX_PEAK_NORM], the 0.2 gap fraction, the 1.5×
- * grouping factor, the head/tail-five selection) and step 5's [maxGap]
- * reproduce the documented Phase-4.6B analysis of oemer 0.1.8, but were
- * **not** line-checked against the actual `staffline_extraction.py`
- * source (it was not retrievable in the build environment at the time
- * of the original port). They are surfaced here as named constants
- * precisely so they can be reconciled against the source before this
- * stage is trusted end-to-end. The `norm > 15` rejection in particular
- * is a near-no-op on a z-scored signal (15 standard deviations); confirm
- * its exact quantity and direction against the source.
+ * **Fidelity note.** The peak-gap sample size is verified against the
+ * official oemer 0.1.8 wheel (SHA-256
+ * `713b9c06e1ade3fa0c5f9fa2c396cbb1492ce6be30d0bd25d57601af1eb32917`),
+ * `staffline_extraction.py::filter_line_peaks()`: source uses
+ * `max(5, round(len(peaks) * 0.2))`, so even a short piano fixture averages
+ * at least five gaps before applying the 1.5× grouping threshold. Source
+ * also selects the tail five peaks when head/tail strengths tie. Using
+ * only one or two smallest gaps can discard one row of a grand staff when
+ * close nuisance peaks are present; resolving a tie toward the head shifts
+ * the retained staff geometry by one nuisance peak.
  *
  * The FIRST/FIFTH label direction *has* since been verified directly
  * against the real oemer 0.1.8 wheel (Phase 4.6E-A analysis): oemer sorts
@@ -126,10 +126,15 @@ object ZoneStafflineExtractor {
         return FloatArray(height) { ((counts[it] - mean) / std).toFloat() }
     }
 
-    /** Mean of the smallest [UNIT_GAP_FRACTION] of the consecutive peak gaps (at least one gap). */
+    /**
+     * Mean of the smallest consecutive peak gaps, using oemer 0.1.8
+     * `filter_line_peaks()`'s exact `max(5, round(len(peaks) * 0.2))`
+     * sample-count rule. `take()` intentionally accepts fewer than five
+     * available gaps, matching NumPy slicing past the array length.
+     */
     private fun approxUnit(peaks: List<Int>): Double {
         val gaps = (1 until peaks.size).map { (peaks[it] - peaks[it - 1]).toDouble() }.sorted()
-        val take = max(1, (gaps.size * UNIT_GAP_FRACTION).toInt())
+        val take = max(5, round(peaks.size * UNIT_GAP_FRACTION).toInt())
         return gaps.take(take).average()
     }
 
@@ -162,7 +167,7 @@ object ZoneStafflineExtractor {
             val tail = group.takeLast(LINES_PER_STAFF)
             val headStrength = head.sumOf { norm[it].toDouble() }
             val tailStrength = tail.sumOf { norm[it].toDouble() }
-            if (headStrength >= tailStrength) head else tail
+            if (headStrength > tailStrength) head else tail
         }
     }
 

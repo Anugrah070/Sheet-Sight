@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -72,8 +73,8 @@ private val FavoriteGold = Color(0xFFFFD700)
 
 /**
  * Library tab: search, sort, grid/list browsing, favorite, rename, delete,
- * pull-to-refresh, and import. OMR/MusicXML generation is still Phase 4 —
- * import only stores the raw file.
+ * pull-to-refresh, and import. Opening a score enters Preview, where the
+ * original sheet can be inspected before OMR is explicitly started.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -144,27 +145,49 @@ fun LibraryScreen(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
 
-                LibraryToolbar(
-                    query = uiState.searchQuery,
-                    onQueryChange = viewModel::onSearchQueryChange,
-                    viewMode = uiState.viewMode,
-                    onViewModeToggled = viewModel::onViewModeToggled
-                )
-
-                SortOptionRow(
-                    selected = uiState.sortOption,
-                    onSelected = viewModel::onSortOptionSelected
-                )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    if (maxWidth > maxHeight) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LibraryToolbar(
+                                query = uiState.searchQuery,
+                                onQueryChange = viewModel::onSearchQueryChange,
+                                viewMode = uiState.viewMode,
+                                onViewModeToggled = viewModel::onViewModeToggled,
+                                modifier = Modifier.weight(1f)
+                            )
+                            SortOptionRow(
+                                selected = uiState.sortOption,
+                                onSelected = viewModel::onSortOptionSelected
+                            )
+                        }
+                    } else {
+                        Column {
+                            LibraryToolbar(
+                                query = uiState.searchQuery,
+                                onQueryChange = viewModel::onSearchQueryChange,
+                                viewMode = uiState.viewMode,
+                                onViewModeToggled = viewModel::onViewModeToggled
+                            )
+                            SortOptionRow(
+                                selected = uiState.sortOption,
+                                onSelected = viewModel::onSortOptionSelected
+                            )
+                        }
+                    }
+                }
 
                 when {
                     uiState.isLoading -> Unit
                     uiState.allScoresEmpty -> PlaceholderContent(
                         message = stringResource(R.string.library_placeholder),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.weight(1f)
                     )
                     uiState.scores.isEmpty() -> PlaceholderContent(
                         message = stringResource(R.string.library_no_results),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.weight(1f)
                     )
                     else -> LibraryContent(
                         scores = uiState.scores,
@@ -175,7 +198,8 @@ fun LibraryScreen(
                         },
                         onToggleFavorite = viewModel::onToggleFavorite,
                         onRename = viewModel::onRenameRequested,
-                        onDelete = viewModel::onDeleteRequested
+                        onDelete = viewModel::onDeleteRequested,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -189,10 +213,11 @@ private fun LibraryToolbar(
     query: String,
     onQueryChange: (String) -> Unit,
     viewMode: LibraryViewMode,
-    onViewModeToggled: () -> Unit
+    onViewModeToggled: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -227,11 +252,11 @@ private fun LibraryToolbar(
 @Composable
 private fun SortOptionRow(
     selected: LibrarySortOption,
-    onSelected: (LibrarySortOption) -> Unit
+    onSelected: (LibrarySortOption) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -252,10 +277,11 @@ private fun LibraryContent(
     onOpen: (Score) -> Unit,
     onToggleFavorite: (Score) -> Unit,
     onRename: (Score) -> Unit,
-    onDelete: (Score) -> Unit
+    onDelete: (Score) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     if (viewMode == LibraryViewMode.LIST) {
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(modifier = modifier.fillMaxSize()) {
             items(scores, key = { it.id }) { score ->
                 ScoreListItem(
                     score = score,
@@ -268,8 +294,8 @@ private fun LibraryContent(
         }
     } else {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxWidth(),
+            columns = GridCells.Adaptive(minSize = 220.dp),
+            modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

@@ -37,10 +37,14 @@ class SymbolExtractor @Inject constructor(
         val horizontalBounds = horizontalBounds(masks)
         val mergedSymbols = mergeSymbols(masks)
         val noteIdMap = buildNoteIdMap(noteheads, mergedSymbols, masks.width, masks.height)
-        val barlines = MusicalBarlineExtractor.extract(
+        val barlineResult = MusicalBarlineExtractor.extractWithDiagnostics(
             grouping.groupMap,
             masks.stemsRests,
-            mergedSymbols,
+            // oemer overlaps unused straight-line candidates from model two
+            // with the independent generic-symbol prediction from model one.
+            // Passing mergedSymbols here includes stemsRests in both operands,
+            // allowing every unclaimed note stem to validate itself.
+            masks.symbols,
             masks.width,
             masks.height,
             horizontalBounds,
@@ -58,17 +62,18 @@ class SymbolExtractor @Inject constructor(
             grouping.groupMap,
             masks.stemsRests,
             mergedSymbols,
-            barlines.map { it.boundingBox },
+            barlineResult.candidates.map { it.boundingBox },
             masks.width,
             masks.height,
             horizontalBounds,
             staffGrid
         )
         return SymbolExtractionResult(
-            barlines = barlines,
+            barlines = barlineResult.candidates,
             clefs = clefsAndAccidentals.clefs,
             accidentals = clefsAndAccidentals.accidentals,
-            rests = rests
+            rests = rests,
+            barlineDiagnostics = barlineResult.diagnostics
         )
     }
 

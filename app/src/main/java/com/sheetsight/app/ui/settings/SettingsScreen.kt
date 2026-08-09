@@ -1,8 +1,12 @@
 package com.sheetsight.app.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
@@ -35,21 +39,47 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    Column(modifier = modifier.fillMaxSize()) {
-        PlaceholderContent(
-            message = stringResource(R.string.settings_placeholder),
-            modifier = Modifier.weight(1f)
-        )
-        HorizontalDivider()
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.settings_developer_tools_heading),
-                style = MaterialTheme.typography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            TextButton(onClick = onOpenOmrSmokeTest) {
-                Text(stringResource(R.string.settings_omr_smoke_test_entry))
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        if (maxWidth > maxHeight) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                PlaceholderContent(
+                    message = stringResource(R.string.settings_placeholder),
+                    modifier = Modifier.weight(1f)
+                )
+                DeveloperTools(
+                    onOpenOmrSmokeTest = onOpenOmrSmokeTest,
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
             }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                PlaceholderContent(
+                    message = stringResource(R.string.settings_placeholder),
+                    modifier = Modifier.weight(1f)
+                )
+                HorizontalDivider()
+                DeveloperTools(onOpenOmrSmokeTest = onOpenOmrSmokeTest)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperTools(
+    onOpenOmrSmokeTest: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(16.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = stringResource(R.string.settings_developer_tools_heading),
+            style = MaterialTheme.typography.labelLarge
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        TextButton(onClick = onOpenOmrSmokeTest) {
+            Text(stringResource(R.string.settings_omr_smoke_test_entry))
         }
     }
 }

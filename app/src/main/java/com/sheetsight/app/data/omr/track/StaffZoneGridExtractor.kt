@@ -102,13 +102,24 @@ object StaffZoneGridExtractor {
     internal fun align(zones: List<List<ZoneStaff>>): List<List<ZoneStaff>> {
         if (zones.isEmpty()) return emptyList()
         val maxRows = zones.maxOf { it.size }
-        if (zones.all { it.size == maxRows }) return zones
-
         val grid = MutableList(zones.size) { MutableList<ZoneStaff?>(maxRows) { null } }
+
+        // Positional indexing alone is unsafe when a zone misses a staff. For
+        // example, [upper, lower] becoming [lower] in the clef-heavy left edge
+        // used to put the same lower staff into both canonical rows. That
+        // mixed the two piano hands into one semantic system and assigned the
+        // bass clef to treble notes. Build stable row targets from the complete
+        // zones, then perform a monotonic, one-to-one match in every zone.
+        val complete = zones.filter { it.size == maxRows }
+        val rowCenters = DoubleArray(maxRows) { row ->
+            median(complete.map { it.sortedBy(ZoneStaff::yCenter)[row].yCenter })
+        }
+        val rowUnits = DoubleArray(maxRows) { row ->
+            median(complete.map { it.sortedBy(ZoneStaff::yCenter)[row].unitSize })
+        }
         zones.forEachIndexed { zoneIndex, staffs ->
-            if (staffs.size == maxRows) {
-                staffs.forEachIndexed { row, staff -> grid[zoneIndex][row] = staff }
-            }
+            matchRows(staffs.sortedBy(ZoneStaff::yCenter), rowCenters, rowUnits)
+                .forEach { (row, staff) -> grid[zoneIndex][row] = staff }
         }
 
         for (row in 0 until maxRows) {
@@ -119,17 +130,6 @@ object StaffZoneGridExtractor {
                     .sortedBy { (index, _) -> kotlin.math.abs(index - zoneIndex) }
                     .take(2)
                 if (nearby.isEmpty()) continue
-
-                val reference = nearby.first().second
-                val existing = zones[zoneIndex].minByOrNull { kotlin.math.abs(it.yCenter - reference.yCenter) }
-                if (existing != null &&
-                    kotlin.math.abs(existing.yCenter - reference.yCenter) <
-                    reference.unitSize * MAX_MATCH_DISTANCE_UNITS
-                ) {
-                    grid[zoneIndex][row] = existing
-                    continue
-                }
-
                 grid[zoneIndex][row] = interpolate(zoneIndex, nearby)
             }
         }
@@ -137,6 +137,67 @@ object StaffZoneGridExtractor {
         // At least one max-sized source zone seeded every row, so all cells
         // are fillable by the left/right interpolation above.
         return grid.map { zone -> zone.mapNotNull { it } }
+    }
+
+    /**
+     * Assigns detected staffs to canonical rows without ever reusing a staff.
+     * Dynamic programming preserves top-to-bottom order while allowing a
+     * canonical row to be absent from this zone.
+     */
+    private fun matchRows(
+        staffs: List<ZoneStaff>,
+        rowCenters: DoubleArray,
+        rowUnits: DoubleArray
+    ): List<Pair<Int, ZoneStaff>> {
+        if (staffs.isEmpty()) return emptyList()
+        val staffCount = staffs.size
+        val rowCount = rowCenters.size
+        val infinity = Double.POSITIVE_INFINITY
+        val costs = Array(staffCount + 1) { DoubleArray(rowCount + 1) { infinity } }
+        val matched = Array(staffCount + 1) { BooleanArray(rowCount + 1) }
+        costs[0][0] = 0.0
+
+        for (row in 0 until rowCount) {
+            for (staffIndex in 0..staffCount) {
+                val current = costs[staffIndex][row]
+                if (!current.isFinite()) continue
+                if (current < costs[staffIndex][row + 1]) {
+                    costs[staffIndex][row + 1] = current
+                    matched[staffIndex][row + 1] = false
+                }
+                if (staffIndex < staffCount) {
+                    val unit = rowUnits[row].coerceAtLeast(1.0)
+                    val distance = kotlin.math.abs(staffs[staffIndex].yCenter - rowCenters[row]) / unit
+                    val next = current + distance
+                    if (next <= costs[staffIndex + 1][row + 1]) {
+                        costs[staffIndex + 1][row + 1] = next
+                        matched[staffIndex + 1][row + 1] = true
+                    }
+                }
+            }
+        }
+
+        val result = mutableListOf<Pair<Int, ZoneStaff>>()
+        var staffIndex = staffCount
+        var row = rowCount
+        while (row > 0 && staffIndex >= 0) {
+            if (staffIndex > 0 && matched[staffIndex][row]) {
+                val candidate = staffs[staffIndex - 1]
+                val distance = kotlin.math.abs(candidate.yCenter - rowCenters[row - 1])
+                if (distance < rowUnits[row - 1] * MAX_MATCH_DISTANCE_UNITS) {
+                    result += (row - 1) to candidate
+                }
+                staffIndex--
+            }
+            row--
+        }
+        return result.asReversed()
+    }
+
+    private fun median(values: List<Double>): Double {
+        val sorted = values.sorted()
+        val middle = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[middle] else (sorted[middle - 1] + sorted[middle]) / 2.0
     }
 
     private fun interpolate(zoneIndex: Int, nearby: List<Pair<Int, ZoneStaff>>): ZoneStaff {

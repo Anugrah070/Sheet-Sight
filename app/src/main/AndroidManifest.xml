@@ -2,8 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Practice Mode will need this in Phase 6; declared now so the manifest
-         does not need to be revisited for that feature. Not requested at runtime yet. -->
+    <!-- Practice audio is processed locally in memory and is never persisted. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application

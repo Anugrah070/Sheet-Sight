@@ -35,11 +35,11 @@ import kotlin.math.sin
  *  * oemer's 0/1/2/3/4 count mapping, including its unusual 4 -> sixteenth
  *    compatibility mapping.
  *
- * Unlike oemer's in-place mutation, results are immutable and ambiguous
- * groups remain unresolved. Multi-voice groups are not silently split or
- * assigned different durations because [ChordCandidate] is the current
- * repository's established note-group contract. OpenCV's slanted-edge
- * `fillPoly` tie pixels are conservatively bracketed; a component that
+ * Unlike oemer's in-place mutation, results are immutable. Ambiguous groups
+ * with stems are split after beam evidence using oemer's
+ * `parse_inner_groups()` top/up and bottom/down rules; both outputs retain
+ * the original note-group ID as provenance. OpenCV's slanted-edge `fillPoly`
+ * tie pixels are conservatively bracketed; a component that
  * could cross the 0.4 threshold under those raster ties is returned as
  * [RhythmUnresolvedReason.BEAM_RASTER_THRESHOLD_AMBIGUOUS].
  */
@@ -107,102 +107,125 @@ object RhythmExtractor {
             )
         }
 
-        val groupResults = sortedChords.mapIndexed { groupIndex, chord ->
-            val members = chord.noteheads.mapNotNull { notesById[it.id] }
-            val reasons = linkedSetOf<RhythmUnresolvedReason>()
-            if (!evidence.isComplete) {
-                reasons += RhythmUnresolvedReason.INCOMPLETE_MASK_EVIDENCE
-            }
-            if (staffGeometry.isEmpty()) {
-                reasons += RhythmUnresolvedReason.NO_STAFF_GEOMETRY
-            }
-            if (members.isEmpty()) {
-                reasons += RhythmUnresolvedReason.EMPTY_NOTE_GROUP
-            }
-
-            val stem = groupEvidence.stems[groupIndex]
-            when (stem.status) {
-                StemAssociationStatus.AMBIGUOUS ->
-                    reasons += RhythmUnresolvedReason.STEM_NOT_ASSOCIATED
-                StemAssociationStatus.SHARED_BETWEEN_GROUPS ->
-                    reasons += RhythmUnresolvedReason.STEM_SHARED_BETWEEN_GROUPS
-                else -> Unit
-            }
-
-            val dots = if (dotMask != null) {
-                members.map { note ->
-                    scanDot(
-                        dotMask = dotMask,
-                        noteIdMap = noteIdMap,
-                        note = note,
-                        groupBox = chord.boundingBox,
-                        staffGeometry = staffGeometry,
-                        width = evidence.width,
-                        height = evidence.height
-                    )
+        var nextSplitId = (sortedChords.maxOfOrNull { it.id } ?: -1) + 1
+        val groupResults = sortedChords.flatMapIndexed { groupIndex, chord ->
+            val originalMembers = chord.noteheads.mapNotNull { notesById[it.id] }
+            val voices = splitInnerVoices(chord, originalMembers)
+            voices.mapIndexed { voiceIndex, voice ->
+                val candidateId = if (voiceIndex == 0) chord.id else nextSplitId++
+                val voiceChord = chord.copy(
+                    id = candidateId,
+                    noteheads = voice.notes,
+                    stemDirection = voice.direction
+                )
+                val reasons = linkedSetOf<RhythmUnresolvedReason>()
+                if (!evidence.isComplete) {
+                    reasons += RhythmUnresolvedReason.INCOMPLETE_MASK_EVIDENCE
                 }
-            } else {
-                members.map { note ->
-                    AugmentationDotEvidence(
-                        noteheadId = note.id,
-                        scanRegion = null,
-                        foregroundPixelCount = null,
-                        minimumPixelCount = null,
-                        maximumPixelCount = null,
-                        detected = null,
-                        unresolvedReason = RhythmUnresolvedReason.NO_STAFF_GEOMETRY
-                    )
+                if (staffGeometry.isEmpty()) {
+                    reasons += RhythmUnresolvedReason.NO_STAFF_GEOMETRY
                 }
-            }
-            dots.mapNotNullTo(reasons) { it.unresolvedReason }
-            val dotCount = resolveGroupDotCount(dots, chord.stemDirection, reasons)
+                if (voice.notes.isEmpty()) {
+                    reasons += RhythmUnresolvedReason.EMPTY_NOTE_GROUP
+                }
 
-            val beamEvidence = resolveBeamEvidence(
-                groupIndex = groupIndex,
-                chord = chord,
-                notes = members,
-                analysis = beamAnalysis,
-                staffGeometry = staffGeometry,
-                width = evidence.width,
-                height = evidence.height
-            )
-            reasons += beamEvidence.reasons
-
-            val baseDuration = inferNoteDuration(
-                chord = chord,
-                notes = members,
-                stem = stem,
-                beamEvidence = beamEvidence,
-                reasons = reasons
-            )
-            val dottedDuration = durationValue(baseDuration, dotCount)
-            val state = when {
-                baseDuration == null -> RhythmResolutionState.UNRESOLVED
-                dottedDuration == null -> RhythmResolutionState.PARTIAL
-                else -> RhythmResolutionState.RESOLVED
-            }
-
-            RhythmCandidate(
-                id = chord.id,
-                noteGroupId = chord.id,
-                chord = chord,
-                noteheads = members,
-                evidenceStatus = if (evidence.isComplete) {
-                    RhythmEvidenceStatus.COMPLETE
+                val originalStem = groupEvidence.stems[groupIndex]
+                val stem = if (
+                    chord.hasStem &&
+                    chord.stemDirection == StemDirection.AMBIGUOUS &&
+                    originalMembers.isNotEmpty()
+                ) {
+                    StemAssociation(
+                        StemAssociationStatus.ASSIGNED,
+                        voice.direction,
+                        originalStem.boundingBox
+                    )
                 } else {
-                    RhythmEvidenceStatus.INCOMPLETE
-                },
-                stemDirection = chord.stemDirection,
-                stemAssociation = stem,
-                beamCount = beamEvidence.beamCount,
-                flagCount = beamEvidence.flagCount,
-                dotCount = dotCount,
-                dotEvidence = dots,
-                baseDuration = baseDuration,
-                dottedDuration = dottedDuration,
-                resolutionState = state,
-                unresolvedReasons = reasons.sortedBy { it.ordinal }
-            )
+                    originalStem
+                }
+                when (stem.status) {
+                    StemAssociationStatus.AMBIGUOUS ->
+                        reasons += RhythmUnresolvedReason.STEM_NOT_ASSOCIATED
+                    StemAssociationStatus.SHARED_BETWEEN_GROUPS ->
+                        reasons += RhythmUnresolvedReason.STEM_SHARED_BETWEEN_GROUPS
+                    else -> Unit
+                }
+
+                val dots = if (dotMask != null) {
+                    voice.notes.map { note ->
+                        scanDot(
+                            dotMask = dotMask,
+                            noteIdMap = noteIdMap,
+                            note = note,
+                            groupBox = chord.boundingBox,
+                            staffGeometry = staffGeometry,
+                            width = evidence.width,
+                            height = evidence.height
+                        )
+                    }
+                } else {
+                    voice.notes.map { note ->
+                        AugmentationDotEvidence(
+                            noteheadId = note.id,
+                            scanRegion = null,
+                            foregroundPixelCount = null,
+                            minimumPixelCount = null,
+                            maximumPixelCount = null,
+                            detected = null,
+                            unresolvedReason = RhythmUnresolvedReason.NO_STAFF_GEOMETRY
+                        )
+                    }
+                }
+                dots.mapNotNullTo(reasons) { it.unresolvedReason }
+                val dotCount = resolveGroupDotCount(dots, voice.direction, reasons)
+
+                val beamEvidence = resolveBeamEvidence(
+                    groupIndex = groupIndex,
+                    chord = voiceChord,
+                    notes = voice.notes,
+                    analysis = beamAnalysis,
+                    staffGeometry = staffGeometry,
+                    width = evidence.width,
+                    height = evidence.height
+                )
+                reasons += beamEvidence.reasons
+
+                val baseDuration = inferNoteDuration(
+                    chord = voiceChord,
+                    notes = voice.notes,
+                    stem = stem,
+                    beamEvidence = beamEvidence,
+                    reasons = reasons
+                )
+                val dottedDuration = durationValue(baseDuration, dotCount)
+                val state = when {
+                    baseDuration == null -> RhythmResolutionState.UNRESOLVED
+                    dottedDuration == null -> RhythmResolutionState.PARTIAL
+                    else -> RhythmResolutionState.RESOLVED
+                }
+
+                RhythmCandidate(
+                    id = candidateId,
+                    noteGroupId = chord.id,
+                    chord = voiceChord,
+                    noteheads = voice.notes,
+                    evidenceStatus = if (evidence.isComplete) {
+                        RhythmEvidenceStatus.COMPLETE
+                    } else {
+                        RhythmEvidenceStatus.INCOMPLETE
+                    },
+                    stemDirection = voice.direction,
+                    stemAssociation = stem,
+                    beamCount = beamEvidence.beamCount,
+                    flagCount = beamEvidence.flagCount,
+                    dotCount = dotCount,
+                    dotEvidence = dots,
+                    baseDuration = baseDuration,
+                    dottedDuration = dottedDuration,
+                    resolutionState = state,
+                    unresolvedReasons = reasons.sortedBy { it.ordinal }
+                )
+            }
         }
 
         return RhythmExtractionResult(
@@ -247,6 +270,47 @@ object RhythmExtractor {
         val groupMap: IntArray,
         val stems: List<StemAssociation>
     )
+
+    private data class InnerVoice(
+        val notes: List<NoteheadCandidate>,
+        val direction: StemDirection
+    )
+
+    /**
+     * Immutable equivalent of oemer 0.1.8
+     * `rhythm_extraction.py::parse_inner_groups` (wheel lines 420-495).
+     * Two notes split one-per-voice; uniform larger groups keep the highest
+     * note in the up voice; mixed groups split at the first type transition.
+     */
+    private fun splitInnerVoices(
+        chord: ChordCandidate,
+        members: List<NoteheadCandidate>
+    ): List<InnerVoice> {
+        if (!chord.hasStem || chord.stemDirection != StemDirection.AMBIGUOUS || members.isEmpty()) {
+            return listOf(InnerVoice(members, chord.stemDirection))
+        }
+        val descending = members.sortedByDescending { it.staffAssignment.staffLinePosition }
+        if (descending.size == 1) return listOf(InnerVoice(descending, StemDirection.UP))
+        if (descending.size == 2) {
+            return listOf(
+                InnerVoice(listOf(descending[0]), StemDirection.UP),
+                InnerVoice(listOf(descending[1]), StemDirection.DOWN)
+            )
+        }
+
+        val allSameType = descending.all { it.type == descending.first().type }
+        val splitIndex = if (allSameType) {
+            1
+        } else {
+            descending.indexOfFirst { it.type != descending.first().type }
+        }
+        return buildList {
+            add(InnerVoice(descending.take(splitIndex), StemDirection.UP))
+            descending.drop(splitIndex).takeIf { it.isNotEmpty() }?.let {
+                add(InnerVoice(it, StemDirection.DOWN))
+            }
+        }
+    }
 
     private data class ComponentBounds(
         var left: Int = Int.MAX_VALUE,

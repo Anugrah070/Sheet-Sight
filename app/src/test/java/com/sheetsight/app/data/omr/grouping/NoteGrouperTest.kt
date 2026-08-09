@@ -3,6 +3,7 @@ package com.sheetsight.app.data.omr.grouping
 import com.sheetsight.app.data.omr.notehead.NoteheadCandidate
 import com.sheetsight.app.data.omr.notehead.NoteheadStaffAssignment
 import com.sheetsight.app.data.omr.notehead.NoteheadType
+import com.sheetsight.app.data.omr.symbol.MusicalBarlineExtractor
 import com.sheetsight.app.data.omr.track.BoundingBox
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -84,6 +85,43 @@ class NoteGrouperTest {
 
         assertTrue(result.groupMap[10 * width + 11] >= 0)
         assertEquals(-1, result.groupMap[10 * width + 24])
+    }
+
+    @Test
+    fun `raw notehead bridge claims dense stem before barline subtraction`() {
+        val width = 24
+        val height = 20
+        val note = note(0, BoundingBox(3, 9, 6, 12), width, 1)
+        val stems = BooleanArray(width * height)
+        val symbols = BooleanArray(width * height)
+        val rawNoteheads = BooleanArray(width * height)
+        note.sourcePixelIndices.forEach { rawNoteheads[it] = true }
+        for (x in 6..12) rawNoteheads[10 * width + x] = true
+        for (y in 2 until 18) {
+            stems[y * width + 12] = true
+            symbols[y * width + 12] = true
+        }
+
+        val result = NoteGrouper.groupWithMap(
+            listOf(note),
+            stems,
+            width,
+            height,
+            noteheadMask = rawNoteheads
+        )
+        val selected = MusicalBarlineExtractor.selectOverlappingSymbolComponents(
+            result.groupMap,
+            stems,
+            symbols,
+            width,
+            height
+        )
+
+        // Golden from the unmodified oemer 0.1.8 wheel's
+        // note_group_extraction.py::group_noteheads() on this exact mask.
+        assertEquals(51, result.groupMap.count { it >= 0 })
+        assertTrue(listOf(2, 10, 17).all { result.groupMap[it * width + 12] >= 0 })
+        assertFalse(selected.any { it })
     }
 
     private fun note(

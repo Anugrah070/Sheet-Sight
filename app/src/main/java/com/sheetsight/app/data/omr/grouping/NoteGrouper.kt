@@ -17,11 +17,9 @@ import com.sheetsight.app.data.omr.track.BoundingBox
  *
  * **Unverified input-contract adaptations:**
  *
- * 1. oemer groups with the complete `notehead_pred` mask. Phase 4.7B's
- *    required input is only `List<NoteheadCandidate>` plus a stem mask, so
- *    the notehead foreground is reconstructed from each candidate's
- *    already-retained source pixels. Filtered-out notehead pixels cannot
- *    bridge groups in this port.
+ * 1. Production grouping receives oemer's complete `notehead_pred` mask.
+ *    The candidate-pixel reconstruction remains only as a fallback for
+ *    isolated callers that do not own the raw prediction layer.
  * 2. oemer's singleton fallback scans toward nearby component ids within
  *    the two closest staff bounds. The required Phase 4.7B input contains
  *    no staff geometry, so that refinement is not performed here.
@@ -35,23 +33,38 @@ object NoteGrouper {
         noteheads: List<NoteheadCandidate>,
         stemMask: BooleanArray,
         width: Int,
-        height: Int
+        height: Int,
+        noteheadMask: BooleanArray? = null
     ): List<ChordCandidate> =
-        groupWithMap(noteheads, stemMask, width, height).chords
+        groupWithMap(noteheads, stemMask, width, height, noteheadMask).chords
 
     /**
      * Groups noteheads and retains the component occupancy required by
      * oemer `symbol_extraction.py::parse_barlines()`/`parse_rests()`.
+     *
+     * [noteheadMask] is the complete dewarped `notehead_pred` layer. Its
+     * use here was verified against oemer 0.1.8
+     * `note_group_extraction.py::group_noteheads()`, which labels
+     * `notehead_pred + cv2.dilate(stems_rests_pred, ones((3, 2)))` before
+     * retaining only components owned by recognized note IDs. Falling
+     * back to candidate source pixels keeps isolated JVM callers usable,
+     * but the production pipeline must supply the raw mask so dense
+     * notehead/stem bridges are subtracted identically by
+     * `symbol_extraction.py::parse_barlines()`.
      */
     fun groupWithMap(
         noteheads: List<NoteheadCandidate>,
         stemMask: BooleanArray,
         width: Int,
-        height: Int
+        height: Int,
+        noteheadMask: BooleanArray? = null
     ): NoteGroupingResult {
         require(width > 0 && height > 0) { "width and height must be positive" }
         require(stemMask.size == width * height) {
             "stemMask size ${stemMask.size} doesn't match ${width}x$height"
+        }
+        require(noteheadMask == null || noteheadMask.size == width * height) {
+            "noteheadMask size ${noteheadMask?.size} doesn't match ${width}x$height"
         }
         if (noteheads.isEmpty()) {
             return NoteGroupingResult(emptyList(), IntArray(width * height) { -1 }, width, height)
@@ -60,9 +73,15 @@ object NoteGrouper {
         // -1 is background, 0 is foreground, exactly what the existing
         // 4-connected labeler consumes.
         val foreground = IntArray(width * height) { -1 }
-        noteheads.forEach { note ->
-            note.sourcePixelIndices.forEach { index ->
-                if (index in foreground.indices) foreground[index] = 0
+        if (noteheadMask != null) {
+            noteheadMask.forEachIndexed { index, on ->
+                if (on) foreground[index] = 0
+            }
+        } else {
+            noteheads.forEach { note ->
+                note.sourcePixelIndices.forEach { index ->
+                    if (index in foreground.indices) foreground[index] = 0
+                }
             }
         }
         addDilatedStems(foreground, stemMask, width, height)

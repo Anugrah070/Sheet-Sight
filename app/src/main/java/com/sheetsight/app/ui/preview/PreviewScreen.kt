@@ -19,19 +19,27 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.WidthFull
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -74,14 +82,30 @@ import java.io.File
 fun PreviewScreen(
     scoreId: Long,
     onBack: () -> Unit,
+    onOpenEditor: (Long) -> Unit,
     viewModel: PreviewViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Load score only once or when ID changes
     LaunchedEffect(scoreId) {
         viewModel.loadScore(scoreId)
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is PreviewEvent.OpenEditor -> onOpenEditor(event.scoreId)
+            }
+        }
+    }
+
+    LaunchedEffect(uiState.recognition) {
+        val failed = uiState.recognition as? PreviewRecognitionState.Failed ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(failed.message)
+        viewModel.onRecognitionErrorShown()
     }
 
     // Scroll to last viewed page once the score is loaded
@@ -100,6 +124,7 @@ fun PreviewScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             AnimatedVisibility(
                 visible = !uiState.isFullscreen,
@@ -130,6 +155,29 @@ fun PreviewScreen(
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.Default.ArrowBack, contentDescription = null)
+                        }
+                    },
+                    actions = {
+                        val isRunning = uiState.recognition is PreviewRecognitionState.Running
+                        FilledTonalButton(
+                            onClick = viewModel::onRunOmrRequested,
+                            enabled = uiState.score != null && !isRunning,
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            if (isRunning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.AutoFixHigh, contentDescription = null)
+                            }
+                            Text(
+                                text = stringResource(
+                                    if (isRunning) R.string.preview_omr_running else R.string.preview_run_omr
+                                ),
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -177,6 +225,46 @@ fun PreviewScreen(
                     )
                 }
             }
+
+            val recognition = uiState.recognition as? PreviewRecognitionState.Running
+            if (recognition != null) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    shape = MaterialTheme.shapes.medium,
+                    tonalElevation = 6.dp
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = recognition.progress?.stage?.displayName
+                                ?: stringResource(R.string.preview_omr_preparing),
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        val progress = recognition.progress
+                        if (progress == null || progress.isIndeterminate) {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                progress = { progress.overallPercentage / 100f },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.preview_omr_progress,
+                                    progress.overallPercentage
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -217,6 +305,7 @@ private fun SheetViewer(
             .transformable(state = transformableState)
     ) {
         val viewerHeight = maxHeight
+        val pageWidth = minOf(maxWidth, viewerHeight * 0.707f)
 
         LazyColumn(
             state = listState,
@@ -235,12 +324,12 @@ private fun SheetViewer(
                     PdfPage(
                         file = file,
                         pageIndex = index,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.width(pageWidth)
                     )
                 } else {
                     ImagePage(
                         file = file,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.width(pageWidth)
                     )
                 }
             }

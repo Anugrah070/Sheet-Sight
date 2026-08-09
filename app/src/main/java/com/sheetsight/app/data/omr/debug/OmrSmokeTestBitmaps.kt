@@ -1,6 +1,8 @@
 package com.sheetsight.app.data.omr.debug
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import com.sheetsight.app.data.omr.inference.OmrClassMasks
 import kotlin.math.roundToInt
 
@@ -92,4 +94,74 @@ internal object OmrSmokeTestBitmaps {
             noteheads = maskToThumbnail(masks.noteheads, masks.width, masks.height, maxDimension),
             clefsKeys = maskToThumbnail(masks.clefsKeys, masks.width, masks.height, maxDimension)
         )
+
+    /** Draws coordinate-scaled evidence directly on a tiny bitmap copy. */
+    fun overlayThumbnail(
+        background: Bitmap,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        lines: List<DebugOverlayLine> = emptyList(),
+        boxes: List<DebugOverlayBox> = emptyList(),
+        labels: List<DebugOverlayLabel> = emptyList()
+    ): Bitmap {
+        require(sourceWidth > 0 && sourceHeight > 0)
+        val output = background.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(output)
+        val scaleX = output.width.toFloat() / sourceWidth
+        val scaleY = output.height.toFloat() / sourceHeight
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f
+        }
+        lines.forEach { line ->
+            paint.color = line.color
+            canvas.drawLine(
+                line.left * scaleX,
+                line.top * scaleY,
+                line.right * scaleX,
+                line.bottom * scaleY,
+                paint
+            )
+        }
+        boxes.forEach { box ->
+            paint.color = box.color
+            canvas.drawRect(
+                box.left * scaleX,
+                box.top * scaleY,
+                box.right * scaleX,
+                box.bottom * scaleY,
+                paint
+            )
+        }
+        paint.style = Paint.Style.FILL
+        paint.textSize = 9f
+        labels.forEach { label ->
+            paint.color = label.color
+            canvas.drawText(label.text, label.x * scaleX, label.y * scaleY, paint)
+        }
+        return output
+    }
 }
+
+internal data class DebugOverlayLine(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val color: Int
+)
+
+internal data class DebugOverlayBox(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    val color: Int
+)
+
+internal data class DebugOverlayLabel(
+    val x: Int,
+    val y: Int,
+    val text: String,
+    val color: Int
+)

@@ -260,6 +260,17 @@ class MusicXmlWriterTest {
     }
 
     @Test
+    fun `semantic system boundaries force MusicXML system breaks`() {
+        val first = system(0, listOf(measure(0, emptyList())))
+        val second = system(1, listOf(measure(1, emptyList(), systemId = "system-1")))
+        val result = MusicXmlWriter.serialize(SemanticScore(listOf(SemanticPart("part-0", listOf(first, second)))))
+        val measures = elements(parse(validXml(result)), "measure")
+
+        assertNull(measures[0].directChild("print"))
+        assertEquals("yes", measures[1].directChild("print")?.getAttribute("new-system"))
+    }
+
+    @Test
     fun `pickup and incomplete measures remain implicit`() {
         val pickup = measure(
             index = 0,
@@ -375,6 +386,77 @@ class MusicXmlWriterTest {
         assertEquals(MusicXmlValidationStatus.VALID, result.validationStatus)
     }
 
+    @Test
+    fun `simultaneous grand staff notes use voices and rewind the MusicXML cursor`() {
+        val result = MusicXmlWriter.serialize(
+            twoStaffScore(
+                listOf(
+                    clef("upper-clef", 5, SemanticClef.TREBLE),
+                    clef("lower-clef", 5, SemanticClef.BASS, staffId = "staff-1"),
+                    chord("upper", 20, listOf(note("upper-note", 20, PitchStep.C, 5))),
+                    chord(
+                        "lower",
+                        20,
+                        listOf(note("lower-note", 20, PitchStep.C, 3, staffId = "staff-1")),
+                        staffId = "staff-1"
+                    )
+                )
+            )
+        )
+        val measure = elements(parse(validXml(result)), "measure").single()
+        val notes = elements(parse(validXml(result)), "note")
+
+        assertEquals(listOf("1", "1"), notes.map { it.directText("voice") })
+        assertEquals(listOf("1", "2"), notes.map { it.directText("staff") })
+        assertEquals(listOf("note", "backup", "note"), measure.rhythmicChildTags())
+        assertEquals("1", measure.directChildren("backup").single().directText("duration"))
+    }
+
+    @Test
+    fun `multi-staff piano part explicitly exports a brace`() {
+        val document = parse(validXml(MusicXmlWriter.serialize(twoStaffScore(emptyList()), "Piano")))
+
+        assertEquals("2", elements(document, "staves").single().textContent)
+        assertEquals("brace", elements(document, "part-symbol").single().textContent)
+    }
+
+    @Test
+    fun `oemer beat checkpoint inserts a compensating rest on the lagging staff`() {
+        val result = MusicXmlWriter.serialize(
+            twoStaffScore(
+                listOf(
+                    clef("upper-clef", 5, SemanticClef.TREBLE),
+                    clef("lower-clef", 5, SemanticClef.BASS, staffId = "staff-1"),
+                    chord("upper-quarter", 20, listOf(note("uq", 20, PitchStep.C, 5))),
+                    chord(
+                        "lower-half",
+                        20,
+                        listOf(note("lh", 20, PitchStep.C, 3, staffId = "staff-1")),
+                        duration = SemanticDuration(1, 2),
+                        staffId = "staff-1"
+                    ),
+                    chord(
+                        "upper-half",
+                        40,
+                        listOf(note("uh", 40, PitchStep.D, 5)),
+                        duration = SemanticDuration(1, 2)
+                    )
+                )
+            )
+        )
+        val document = parse(validXml(result))
+        val notes = elements(document, "note")
+        val compensatingRest = notes.single { it.directChild("rest") != null }
+
+        // Golden values from oemer 0.1.8 build_system.py::Measure.align_symbols:
+        // [[16, 32], [32, 0]] becomes [[16, 32], [32, 16]].
+        assertEquals(4, notes.size)
+        assertEquals("2", compensatingRest.directText("staff"))
+        assertEquals("1", compensatingRest.directText("duration"))
+        assertEquals("quarter", compensatingRest.directText("type"))
+        assertEquals(1, result.exportedRestCount)
+    }
+
     private fun writeScore(events: List<SemanticEvent>): MusicXmlSerializationResult =
         MusicXmlWriter.serialize(score(listOf(measure(0, events))))
 
@@ -391,21 +473,62 @@ class MusicXmlWriterTest {
         return SemanticScore(listOf(SemanticPart("part-0", listOf(system))))
     }
 
+    private fun twoStaffScore(events: List<SemanticEvent>): SemanticScore {
+        val staffs = listOf(
+            SemanticStaff("staff-0", 0, "system-0", source(SemanticSourceKind.STAFF_GRID, "upper-staff")),
+            SemanticStaff("staff-1", 1, "system-0", source(SemanticSourceKind.STAFF_GRID, "lower-staff"))
+        )
+        val system = SemanticSystem(
+            id = "system-0",
+            index = 0,
+            staffs = staffs,
+            measures = listOf(measure(0, events)),
+            horizontalBounds = SemanticBounds(0, 0, 200, 200),
+            source = source(SemanticSourceKind.STAFF_GRID, "grand-staff")
+        )
+        return SemanticScore(listOf(SemanticPart("part-0", listOf(system))))
+    }
+
+    private fun system(index: Int, measures: List<SemanticMeasure>): SemanticSystem {
+        val systemId = "system-$index"
+        return SemanticSystem(
+            id = systemId,
+            index = index,
+            staffs = listOf(
+                SemanticStaff(
+                    "$systemId-staff-0",
+                    0,
+                    systemId,
+                    source(SemanticSourceKind.STAFF_GRID, "$systemId-staff")
+                )
+            ),
+            measures = measures,
+            horizontalBounds = SemanticBounds(0, index * 100, 200, (index + 1) * 100),
+            source = source(SemanticSourceKind.STAFF_GRID, systemId)
+        )
+    }
+
     private fun measure(
         index: Int,
         events: List<SemanticEvent>,
         left: MeasureBoundaryEvidence = MeasureBoundaryEvidence.DETECTED_BARLINE,
-        right: MeasureBoundaryEvidence = MeasureBoundaryEvidence.DETECTED_BARLINE
+        right: MeasureBoundaryEvidence = MeasureBoundaryEvidence.DETECTED_BARLINE,
+        systemId: String = "system-0"
     ) = SemanticMeasure(
         id = "measure-$index",
         index = index,
-        systemId = "system-0",
+        systemId = systemId,
         boundary = SemanticMeasureBoundary(index * 100, (index + 1) * 100, left, right),
         events = events
     )
 
-    private fun clef(id: String, x: Int, clef: SemanticClef, measureId: String = "measure-0") =
-        SemanticClefChange(id, measureId, "staff-0", x, listOf(source(SemanticSourceKind.CLEF, id)), clef)
+    private fun clef(
+        id: String,
+        x: Int,
+        clef: SemanticClef,
+        measureId: String = "measure-0",
+        staffId: String = "staff-0"
+    ) = SemanticClefChange(id, measureId, staffId, x, listOf(source(SemanticSourceKind.CLEF, id)), clef)
 
     private fun chord(
         id: String,
@@ -413,11 +536,12 @@ class MusicXmlWriterTest {
         notes: List<SemanticNote>,
         duration: SemanticDuration = SemanticDuration(1, 4),
         dots: Int = 0,
-        measureId: String = "measure-0"
+        measureId: String = "measure-0",
+        staffId: String = "staff-0"
     ) = SemanticChord(
         id = id,
         measureId = measureId,
-        staffId = "staff-0",
+        staffId = staffId,
         horizontalPosition = x,
         sourceRefs = listOf(source(SemanticSourceKind.NOTE_GROUP, id)),
         notes = notes,
@@ -435,11 +559,12 @@ class MusicXmlWriterTest {
         octave: Int,
         alteration: AccidentalAlteration = AccidentalAlteration.NATURAL,
         localAccidental: Boolean = false,
-        measureId: String = "measure-0"
+        measureId: String = "measure-0",
+        staffId: String = "staff-0"
     ) = SemanticNote(
         id = id,
         measureId = measureId,
-        staffId = "staff-0",
+        staffId = staffId,
         horizontalPosition = x,
         sourceRefs = listOf(source(SemanticSourceKind.NOTEHEAD, id)) +
             if (localAccidental) listOf(source(SemanticSourceKind.ACCIDENTAL, "accidental-$id")) else emptyList(),
@@ -473,9 +598,18 @@ class MusicXmlWriterTest {
     private fun parse(xml: String): Document {
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = false
-            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            // Features wrapped in try-catch because some are not supported on Android
+            listOf(
+                "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+                "http://xml.org/sax/features/external-general-entities",
+                "http://xml.org/sax/features/external-parameter-entities"
+            ).forEach { feature ->
+                try {
+                    setFeature(feature, false)
+                } catch (e: Exception) {
+                    // Safe to ignore if the feature is not supported by the platform's parser
+                }
+            }
         }
         return factory.newDocumentBuilder().apply {
             setEntityResolver { _, _ -> InputSource(StringReader("")) }
@@ -494,6 +628,19 @@ class MusicXmlWriterTest {
             .firstOrNull { it.tagName == tag }
 
     private fun Element.hasDirectChild(tag: String) = directChild(tag) != null
+    private fun Element.directChildren(tag: String): List<Element> =
+        (0 until childNodes.length)
+            .map { childNodes.item(it) }
+            .filterIsInstance<Element>()
+            .filter { it.tagName == tag }
+
+    private fun Element.rhythmicChildTags(): List<String> =
+        (0 until childNodes.length)
+            .map { childNodes.item(it) }
+            .filterIsInstance<Element>()
+            .map { it.tagName }
+            .filter { it == "note" || it == "backup" || it == "forward" }
+
     private fun Element.directText(tag: String) = requireNotNull(directChild(tag)).textContent
     private fun Element.descendantText(tag: String) = getElementsByTagName(tag).item(0).textContent
 }

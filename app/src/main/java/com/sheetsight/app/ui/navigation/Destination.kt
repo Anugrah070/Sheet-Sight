@@ -23,7 +23,10 @@ sealed class Destination(
     val icon: ImageVector
 ) {
     data object Library : Destination("library", R.string.nav_library, Icons.Filled.LibraryMusic)
-    data object Editor : Destination("editor", R.string.nav_editor, Icons.Filled.Edit)
+    data object Editor : Destination("editor", R.string.nav_editor, Icons.Filled.Edit) {
+        const val ROUTE_PATTERN = "editor?scoreId={scoreId}"
+        fun forScore(scoreId: Long): String = "editor?scoreId=$scoreId"
+    }
     data object Practice : Destination("practice", R.string.nav_practice, Icons.Filled.PlayArrow)
     data object Analysis : Destination("analysis", R.string.nav_analysis, Icons.Filled.Analytics)
     data object Settings : Destination("settings", R.string.nav_settings, Icons.Filled.Settings)

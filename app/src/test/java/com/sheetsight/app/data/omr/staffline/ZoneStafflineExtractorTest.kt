@@ -67,17 +67,17 @@ class ZoneStafflineExtractorTest {
     }
 
     @Test
-    fun `trims a group with more than five lines to the stronger head-or-tail five`() {
-        // Seven equal-strength lines -> head five wins the tie (>=), so indices are 28, 40, 52, 64, 76.
+    fun `trims a group with more than five lines to source tail on an equal-strength tie`() {
+        // Verified against oemer 0.1.8 filter_line_peaks(): the comparison
+        // is strict `head > tail`, so equal strengths select the tail five.
         val centers = listOf(28, 40, 52, 64, 76, 88, 100)
         val result = ZoneStafflineExtractor.extract(staffMask(centers), width, height, 0, width)
 
         assertEquals(1, result.staffs.size)
         val staff = result.staffs.single()
         assertEquals(5, staff.lines.size)
-        // Head five (rows 28..76) win the tie; FIRST=top of that set (28), FIFTH=bottom (76).
-        assertEquals(28.0, staff.lines.first().yCenter, 1e-9)
-        assertEquals(76.0, staff.lines.last().yCenter, 1e-9)
+        assertEquals(52.0, staff.lines.first().yCenter, 1e-9)
+        assertEquals(100.0, staff.lines.last().yCenter, 1e-9)
     }
 
     @Test

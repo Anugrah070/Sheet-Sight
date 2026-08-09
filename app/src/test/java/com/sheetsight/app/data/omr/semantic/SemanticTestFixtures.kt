@@ -36,6 +36,13 @@ internal object SemanticTestFixtures {
         listOf(AssignedStaff(staff(width), track = 0, group = 0))
     )
 
+    fun twoSystemStaffGrid(width: Int = 200): List<List<AssignedStaff>> = listOf(
+        listOf(
+            AssignedStaff(staff(width, top = 40), track = 0, group = 0),
+            AssignedStaff(staff(width, top = 140), track = 0, group = 1)
+        )
+    )
+
     fun note(id: Int, x: Int, staffPosition: Int): NoteheadCandidate = NoteheadCandidate(
         id = id,
         boundingBox = BoundingBox(x - 4, 55, x + 5, 63),
@@ -112,9 +119,9 @@ internal object SemanticTestFixtures {
         )
     }
 
-    private fun staff(width: Int): ZoneStaff = ZoneStaff(
+    private fun staff(width: Int, top: Int = 40): ZoneStaff = ZoneStaff(
         StafflinePosition.entries.mapIndexed { index, position ->
-            Staffline(position, (0 until width).map { x -> StafflinePoint(x, 40 + index * 10) })
+            Staffline(position, (0 until width).map { x -> StafflinePoint(x, top + index * 10) })
         }
     )
 
@@ -126,4 +133,3 @@ internal object SemanticTestFixtures {
         return SymbolClassification(model, spec.labels.indexOf(label), label, emptyList())
     }
 }
-

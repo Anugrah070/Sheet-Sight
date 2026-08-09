@@ -33,7 +33,8 @@ object OmrStaffGridAssembler {
                     height,
                     emptyList()
                 ),
-                validatedGrid = emptyList()
+                validatedGrid = emptyList(),
+                diagnostics = StaffGridAssemblyDiagnostics()
             )
         }
 
@@ -56,23 +57,37 @@ object OmrStaffGridAssembler {
         // Source flow: selected generic-symbol pixels + all predicted
         // stems/straight lines, followed by a 5x2 morphological closing.
         val barlineMask = BarlineMaskBuilder.build(masks, acceptedLines)
-        val trackVote = TrackVotingLoop.infer(
+        val barlineTrackVote = TrackVotingLoop.infer(
             barlineMask,
             width,
             height,
             staffCenterGrid
         )
+        val geometryTrackCount = StaffGeometryTrackInferer.infer(zoneStaffGrid)
+        val resolvedTrackCount = maxOf(barlineTrackVote.trackNums, geometryTrackCount)
+        val trackVote = barlineTrackVote.copy(trackNums = resolvedTrackCount)
 
         Log.d(
             TAG,
             "[OMR_GRID] hough=${houghLines.size} accepted=${acceptedLines.size} " +
                 "barlineBoxes=${trackVote.barlineBoxes.size} " +
-                "heightRatios=${trackVote.heightRatios.size} trackNums=${trackVote.trackNums}"
+                "heightRatios=${trackVote.heightRatios.size} " +
+                "barlineTracks=${barlineTrackVote.trackNums} geometryTracks=$geometryTrackCount " +
+                "trackNums=${trackVote.trackNums}"
         )
 
         val assignedGrid = StaffTrackGroupAssigner.assign(zoneStaffGrid, trackVote.trackNums)
         val validatedGrid = StaffGridValidator.validate(assignedGrid)
-        return ValidatedStaffGridResult(page, trackVote, validatedGrid)
+        return ValidatedStaffGridResult(
+            page = page,
+            trackVote = trackVote,
+            validatedGrid = validatedGrid,
+            diagnostics = StaffGridAssemblyDiagnostics(
+                rawHoughLines = houghLines,
+                acceptedHoughLines = acceptedLines,
+                connectedComponentBoxes = trackVote.barlineBoxes
+            )
+        )
     }
 
     private fun List<List<ZoneStaff>>.toCenterGrid(): List<List<StaffCenterInfo>> =
@@ -90,5 +105,13 @@ object OmrStaffGridAssembler {
 data class ValidatedStaffGridResult(
     val page: DewarpedPage,
     val trackVote: TrackVotingLoop.TrackVoteResult,
-    val validatedGrid: List<List<AssignedStaff>>
+    val validatedGrid: List<List<AssignedStaff>>,
+    val diagnostics: StaffGridAssemblyDiagnostics = StaffGridAssemblyDiagnostics()
+)
+
+/** Small, image-free evidence retained only for developer diagnostics. */
+data class StaffGridAssemblyDiagnostics(
+    val rawHoughLines: List<HoughLine> = emptyList(),
+    val acceptedHoughLines: List<HoughLine> = emptyList(),
+    val connectedComponentBoxes: List<BoundingBox> = emptyList()
 )

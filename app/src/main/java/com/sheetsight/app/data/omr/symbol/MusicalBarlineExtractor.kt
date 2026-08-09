@@ -21,8 +21,9 @@ import kotlin.math.atan2
  * `symbol_extraction.py::parse_barlines()`/`filter_barlines()`.
  *
  * Barlines are geometric: no trained barline classifier exists in the
- * oemer distribution. Note-group pixels are removed, overlapping generic
- * symbol components are selected, and probabilistic Hough segments are
+ * oemer distribution. Note-group pixels are removed, unused straight-line
+ * candidates are overlapped with the independent model-one generic-symbol
+ * components, and probabilistic Hough segments are
  * filtered and consolidated exactly before staff-group assignment.
  *
  * **Safe empty-input deviation:** oemer calls `np.max` on an empty line
@@ -39,33 +40,55 @@ object MusicalBarlineExtractor {
     fun extract(
         groupMap: IntArray,
         stemsRests: BooleanArray,
-        mergedSymbols: BooleanArray,
+        symbols: BooleanArray,
         width: Int,
         height: Int,
         horizontalBounds: IntRange,
         staffGrid: List<List<AssignedStaff>>
-    ): List<MusicalBarlineCandidate> {
-        validateInputs(groupMap, stemsRests, mergedSymbols, width, height)
+    ): List<MusicalBarlineCandidate> = extractWithDiagnostics(
+        groupMap,
+        stemsRests,
+        symbols,
+        width,
+        height,
+        horizontalBounds,
+        staffGrid
+    ).candidates
+
+    /** Same recognition path as [extract], plus small image-free filter evidence. */
+    fun extractWithDiagnostics(
+        groupMap: IntArray,
+        stemsRests: BooleanArray,
+        symbols: BooleanArray,
+        width: Int,
+        height: Int,
+        horizontalBounds: IntRange,
+        staffGrid: List<List<AssignedStaff>>
+    ): MusicalBarlineExtractionResult {
+        validateInputs(groupMap, stemsRests, symbols, width, height)
         val houghMask = selectOverlappingSymbolComponents(
             groupMap,
             stemsRests,
-            mergedSymbols,
+            symbols,
             width,
             height
         )
         val lines = HoughLineDetector.detect(houghMask, width, height)
-        val boxes = filterLines(lines, horizontalBounds, staffGrid)
-        return boxes.map { box ->
+        val diagnostics = filterLines(lines, horizontalBounds, staffGrid).copy(
+            selectedOverlapPixelCount = houghMask.count { it }
+        )
+        val candidates = diagnostics.acceptedBoxes.map { box ->
             val center = box.center()
             val staff = StaffGeometryResolver.closestPair(staffGrid, center.first, center.second).first
             MusicalBarlineCandidate(box, staff.group)
         }
+        return MusicalBarlineExtractionResult(candidates, diagnostics)
     }
 
     internal fun selectOverlappingSymbolComponents(
         groupMap: IntArray,
         stemsRests: BooleanArray,
-        mergedSymbols: BooleanArray,
+        symbols: BooleanArray,
         width: Int,
         height: Int
     ): BooleanArray {
@@ -73,7 +96,7 @@ object MusicalBarlineExtractor {
             if (stemsRests[index] && groupMap[index] < 0) 0 else -1
         }
         val symbolForeground = IntArray(width * height) { index ->
-            if (mergedSymbols[index] && groupMap[index] < 0) 0 else -1
+            if (symbols[index] && groupMap[index] < 0) 0 else -1
         }
         val stemLabels = ConnectedComponents.label(stemForeground, width, height)
         val symbolLabels = ConnectedComponents.label(symbolForeground, width, height)
@@ -90,12 +113,18 @@ object MusicalBarlineExtractor {
         lines: List<HoughLine>,
         horizontalBounds: IntRange,
         staffGrid: List<List<AssignedStaff>>
-    ): List<BoundingBox> {
-        if (lines.isEmpty()) return emptyList()
+    ): MusicalBarlineDiagnostics {
+        if (lines.isEmpty()) return MusicalBarlineDiagnostics()
         val inRange = lines.map(::toBox).filter { it.center().first in horizontalBounds }
         val merged = BoundingBoxMerger.resolveOverlaps(inRange, merge = true, overlapRatio = 0.0)
         val validLines = merged.filter { lineDegrees(it) >= MIN_LINE_DEGREES }
-        if (validLines.isEmpty()) return emptyList()
+        if (validLines.isEmpty()) {
+            return MusicalBarlineDiagnostics(
+                rawHoughLines = lines,
+                horizontallyAcceptedBoxes = inRange,
+                mergedBoxes = merged
+            )
+        }
         val lastCenter = validLines.last().center()
         val unitSize = StaffGeometryResolver.unitSizeAt(
             staffGrid,
@@ -103,13 +132,32 @@ object MusicalBarlineExtractor {
             lastCenter.second
         )
         val consolidated = renderAndExtract(validLines)
+        val heightAccepted = consolidated
             .filter { it.height >= unitSize * MIN_HEIGHT_UNIT_RATIO }
             .sortedBy { it.height }
-        if (consolidated.isEmpty()) return emptyList()
-        val referenceHeight = consolidated.takeLast(5).map { it.height }.average()
-        return consolidated.filter {
+        if (heightAccepted.isEmpty()) {
+            return MusicalBarlineDiagnostics(
+                rawHoughLines = lines,
+                horizontallyAcceptedBoxes = inRange,
+                mergedBoxes = merged,
+                angleAcceptedBoxes = validLines,
+                consolidatedBoxes = consolidated
+            )
+        }
+        val referenceHeight = heightAccepted.takeLast(5).map { it.height }.average()
+        val accepted = heightAccepted.filter {
             it.height / referenceHeight > NORMALIZED_HEIGHT_THRESHOLD
         }
+        return MusicalBarlineDiagnostics(
+            rawHoughLines = lines,
+            horizontallyAcceptedBoxes = inRange,
+            mergedBoxes = merged,
+            angleAcceptedBoxes = validLines,
+            consolidatedBoxes = consolidated,
+            heightAcceptedBoxes = heightAccepted,
+            acceptedBoxes = accepted,
+            referenceHeight = referenceHeight
+        )
     }
 
     private fun renderAndExtract(lines: List<BoundingBox>): List<BoundingBox> {
@@ -148,17 +196,35 @@ object MusicalBarlineExtractor {
     private fun validateInputs(
         groupMap: IntArray,
         stemsRests: BooleanArray,
-        mergedSymbols: BooleanArray,
+        symbols: BooleanArray,
         width: Int,
         height: Int
     ) {
         val expectedSize = width * height
         require(groupMap.size == expectedSize)
         require(stemsRests.size == expectedSize)
-        require(mergedSymbols.size == expectedSize)
+        require(symbols.size == expectedSize)
         require(width > 0 && height > 0)
     }
 }
+
+data class MusicalBarlineExtractionResult(
+    val candidates: List<MusicalBarlineCandidate>,
+    val diagnostics: MusicalBarlineDiagnostics
+)
+
+/** Candidate counts/boxes after each official oemer filter; no page-sized data is retained. */
+data class MusicalBarlineDiagnostics(
+    val selectedOverlapPixelCount: Int = 0,
+    val rawHoughLines: List<HoughLine> = emptyList(),
+    val horizontallyAcceptedBoxes: List<BoundingBox> = emptyList(),
+    val mergedBoxes: List<BoundingBox> = emptyList(),
+    val angleAcceptedBoxes: List<BoundingBox> = emptyList(),
+    val consolidatedBoxes: List<BoundingBox> = emptyList(),
+    val heightAcceptedBoxes: List<BoundingBox> = emptyList(),
+    val acceptedBoxes: List<BoundingBox> = emptyList(),
+    val referenceHeight: Double? = null
+)
 
 internal fun BoundingBox.center(): Pair<Int, Int> =
     Math.rint((left + right) / 2.0).toInt() to

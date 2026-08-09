@@ -3,6 +3,8 @@ package com.sheetsight.app.di
 import ai.onnxruntime.OrtEnvironment
 import com.sheetsight.app.data.omr.OmrEngine
 import com.sheetsight.app.data.omr.OnnxOmrEngine
+import com.sheetsight.app.data.omr.DefaultScoreOmrProcessor
+import com.sheetsight.app.data.omr.ScoreOmrProcessor
 import com.sheetsight.app.data.omr.symbol.OnnxSvmClassifierBackend
 import com.sheetsight.app.data.omr.symbol.SvmClassifierBackend
 import dagger.Binds
@@ -30,6 +32,9 @@ abstract class OmrModule {
 
     @Binds
     abstract fun bindOmrEngine(impl: OnnxOmrEngine): OmrEngine
+
+    @Binds
+    abstract fun bindScoreOmrProcessor(impl: DefaultScoreOmrProcessor): ScoreOmrProcessor
 
     /** Uses the bundled ONNX exports for every trained oemer SVM. */
     @Binds

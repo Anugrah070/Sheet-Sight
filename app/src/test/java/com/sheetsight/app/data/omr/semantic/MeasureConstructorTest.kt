@@ -29,6 +29,33 @@ class MeasureConstructorTest {
     }
 
     @Test
+    fun `two detected extent barlines produce one measure interval`() {
+        val measures = MeasureConstructor.construct(
+            10,
+            110,
+            listOf(barline(10), barline(110))
+        )
+
+        assertEquals(listOf(10 to 110), measures.map { it.left to it.right })
+        assertEquals(MeasureBoundaryEvidence.DETECTED_BARLINE, measures.single().leftEvidence)
+        assertEquals(MeasureBoundaryEvidence.DETECTED_BARLINE, measures.single().rightEvidence)
+    }
+
+    @Test
+    fun `overlapping duplicate barline boxes produce one boundary`() {
+        val measures = MeasureConstructor.construct(
+            0,
+            200,
+            listOf(
+                barline(100, SemanticBounds(98, 20, 102, 80)),
+                barline(101, SemanticBounds(99, 21, 103, 79))
+            )
+        )
+
+        assertEquals(listOf(0 to 100, 100 to 200), measures.map { it.left to it.right })
+    }
+
+    @Test
     fun `leading interval is preserved as pickup measure`() {
         val measures = MeasureConstructor.construct(20, 220, listOf(barline(70), barline(170)))
 
@@ -46,9 +73,8 @@ class MeasureConstructorTest {
         assertEquals(MeasureBoundaryEvidence.STAFF_EXTENT, measures.last().rightEvidence)
     }
 
-    private fun barline(x: Int) = DetectedMeasureBarline(
+    private fun barline(x: Int, bounds: SemanticBounds? = null) = DetectedMeasureBarline(
         x,
-        SemanticSourceRef(SemanticSourceKind.BARLINE, x.toString())
+        SemanticSourceRef(SemanticSourceKind.BARLINE, x.toString(), bounds)
     )
 }
-

@@ -49,14 +49,40 @@ object SemanticScoreConstructor {
                         SemanticSourceKind.STAFF_GRID,
                         "group-$group-track-$track",
                         boundsOf(segments)
-                    )
+                    ),
+                    alignmentUnitSize = segments.map { it.staff.unitSize }.average()
                 )
             }
 
             val groupBarlines = barlines.filter { it.candidate.group == group }
+            // Staff-mask ink can stop just before a drawn edge barline. Once the extractor has
+            // assigned that evidence to this system, preserve its exact coordinate as the edge
+            // rather than dropping it for falling outside staff-only bounds.
+            val measureBounds = bounds.copy(
+                left = minOf(bounds.left, groupBarlines.minOfOrNull { it.x } ?: bounds.left),
+                right = maxOf(bounds.right, groupBarlines.maxOfOrNull { it.x } ?: bounds.right)
+            )
+            val interiorBarlines = groupBarlines.filter {
+                it.x > measureBounds.left && it.x < measureBounds.right
+            }
+            if (interiorBarlines.isEmpty()) {
+                constructionWarnings += SemanticValidationWarning(
+                    SemanticValidationCode.UNRESOLVED_MEASURE_BOUNDARY,
+                    "No detected barline boundary exists inside ${measureBounds.left}..${measureBounds.right}; " +
+                        "one unresolved interval is preserved without guessing",
+                    systemId,
+                    listOf(
+                        SemanticSourceRef(
+                            SemanticSourceKind.STAFF_GRID,
+                            "group-$group",
+                            bounds
+                        )
+                    )
+                )
+            }
             val boundaries = MeasureConstructor.construct(
-                bounds.left,
-                bounds.right,
+                measureBounds.left,
+                measureBounds.right,
                 groupBarlines.map { DetectedMeasureBarline(it.x, it.source) }
             )
             val emptyMeasures = boundaries.map {
@@ -202,7 +228,7 @@ object SemanticScoreConstructor {
                             )
                         }
                         eventsByMeasure.getValue(measure.id) += SemanticChord(
-                            id = "chord-${candidate.noteGroupId}",
+                            id = "chord-${candidate.id}",
                             measureId = measure.id,
                             staffId = staffId(systemIndex, track),
                             horizontalPosition = x,
@@ -263,7 +289,7 @@ object SemanticScoreConstructor {
                 index = systemIndex,
                 staffs = staffs,
                 measures = measures,
-                horizontalBounds = bounds,
+                horizontalBounds = measureBounds,
                 source = SemanticSourceRef(
                     SemanticSourceKind.STAFF_GRID,
                     "group-$group",

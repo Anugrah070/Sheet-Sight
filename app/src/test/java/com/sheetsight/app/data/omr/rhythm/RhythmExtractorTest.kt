@@ -195,6 +195,31 @@ class RhythmExtractorTest {
     }
 
     @Test
+    fun `ambiguous two-stem group splits into upper and lower voices after beam scan`() {
+        val page = SyntheticPage()
+        val upper = page.note(0, BoundingBox(30, 45, 39, 53), staffPosition = 4)
+        val lower = page.note(1, BoundingBox(30, 65, 39, 73), staffPosition = 0)
+        page.stem(BoundingBox(37, 20, 40, 50))
+        page.stem(BoundingBox(29, 68, 32, 96))
+        val ambiguous = chord(
+            id = 0,
+            notes = listOf(upper, lower),
+            box = BoundingBox(29, 20, 40, 96),
+            direction = StemDirection.AMBIGUOUS
+        )
+
+        val results = page.extract(listOf(upper, lower), listOf(ambiguous)).noteGroups
+
+        // oemer 0.1.8 rhythm_extraction.py::parse_inner_groups handles the
+        // two-note case as separate top/up and bottom/down voices.
+        assertEquals(2, results.size)
+        assertEquals(listOf(listOf(0), listOf(1)), results.map { result -> result.noteheads.map { it.id } })
+        assertEquals(listOf(StemDirection.UP, StemDirection.DOWN), results.map { it.stemDirection })
+        assertTrue(results.all { it.noteGroupId == 0 })
+        assertTrue(results.all { it.baseDuration == RhythmDuration.QUARTER })
+    }
+
+    @Test
     fun `rhythm extraction does not mutate note group geometry`() {
         val page = SyntheticPage()
         val note = page.note(0, BoundingBox(30, 55, 39, 63))

@@ -45,12 +45,15 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   `Score` row. **It does not run OMR** — `Score.musicXmlPath` is left
   `null` by this use case.
 - **Preview screen**: renders PDF pages via `android.graphics.pdf.PdfRenderer`
-  with pinch-zoom/pan.
+  with pinch-zoom/pan and can run the current page through the complete
+  recognition route, persist the generated MusicXML path, and open it in
+  the notation viewer.
 - **Dependency injection**: Hilt modules for the database, repositories,
   qualified coroutine dispatchers, and the OMR module.
-- **OMR pipeline integration**: The pipeline is wired from image decode
-  through dewarping via `OnnxOmrEngine` → `OmrPageDewarpRunner`.
-- **OMR pipeline components (verified with 172 passing unit tests)**:
+- **OMR pipeline integration**: `DefaultScoreOmrProcessor` runs imported
+  image/PDF pages through the complete recognition and MusicXML-export route.
+  `OnnxOmrEngine` separately exposes the older decode-through-staff-grid seam.
+- **OMR pipeline components (part of a 311-test passing JVM suite)**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
@@ -83,40 +86,67 @@ ONNX Runtime Mobile, no network dependency for any core feature.
     an immutable, image-independent `SemanticScore`. Evidence-backed
     measures, semantic events, clef-aware pitches, accidental state, source
     provenance, and structured validation warnings are implemented.
+  - **MusicXML output route**: `DefaultScoreOmrProcessor` adapts image/PDF
+    pages to the complete smoke-runner pipeline through semantic construction
+    and MusicXML export, then persists the generated file for the app UI.
+- **Editor notation viewer**: generated MusicXML is hardened-parsed, laid out,
+  and rendered as real notation with paging/system geometry and zoom controls.
+  Interactive notation editing is not implemented yet.
+- **Practice Mode (Phases 7.0-7.4)**: imports uncompressed MusicXML, builds a
+  deterministic `PracticeSequence`, captures one local microphone stream,
+  performs monophonic piano YIN pitch detection, stable-note/onset filtering,
+  correct/wrong matching, repeated-note re-arm protection, notation
+  highlighting and score following, BPM/count-in/practice-clock timing,
+  Early/OnTime/Late feedback, timed rests, and pause/resume.
+- **Informational articulation awareness (Phases 7.3-7.4)**: accepted notes create
+  bounded session-local acoustic events which reuse existing pitch confidence
+  and RMS data, tolerate detector dropouts, debounce release, exclude paused
+  time, and report articulation-aware duration outcomes without changing
+  pointer advancement. Phase 7.4 adds a six-sample, device/environment release
+  calibration with robust derived statistics and a versioned compact preference
+  profile; raw PCM is never persisted. MusicXML ties, slurs, staccato, tenuto,
+  accent/strong-accent, staccatissimo, and fermata are preserved explicitly.
+  Tie chains retain their source notes for rendering while using combined
+  sounding duration and no-onset continuation semantics in Practice Mode.
 
 ### In progress
 - **Production integration**: semantic construction is available as a
   tested component and developer smoke stage, but `OnnxOmrEngine` still
   stops at its documented later-phase integration seam.
-- **Testing**: 172 JVM tests pass. The Phase 4 classifier parity
+- **Testing**: 311 JVM tests pass. The Phase 4 classifier parity
   instrumented test passes on the connected OnePlus device.
+- **Practice acoustic tuning**: deterministic calibration/profile and tracker
+  behavior are JVM-tested; Phase 7.4 has not yet been calibrated on a physical piano and
+  sustain pedal in the current implementation session.
 
 ### Planned / not yet implemented
-- MusicXML generation remains incomplete and is intentionally separate
-  from semantic-score construction.
-- Editor tab (notation editing) — placeholder screen only.
-- Practice tab (pitch detection, cursor tracking, metronome, looping) —
-  placeholder screen only. `TarsosDSP` is not present as a dependency.
+- Interactive notation editing remains planned; the current Editor is a
+  read-only MusicXML notation viewer.
 - Analysis tab (key/chord/cadence/interval/motif detection, overlays) —
   placeholder screen only.
-- Settings tab — placeholder screen only.
-- Fingering suggestion, practice statistics, MIDI support, multi-page
+- Practice scoring/grades, persistent analytics/history, dynamics, pedal
+  detection/scoring, polyphonic transcription, accompaniment, and MIDI are
+  intentionally not implemented.
+- Fingering suggestion and multi-page
   side-by-side view, measure bookmarks — not started.
 
 ---
 
 ## 3. Current OMR pipeline status
 
-The OMR pipeline is implemented and integrated from image decoding through
-dewarping and staffline extraction. It consists of independently testable
-Kotlin components under `app/src/main/java/com/sheetsight/app/data/omr/`.
+The app-facing `DefaultScoreOmrProcessor` route is implemented from image/PDF
+input through MusicXML export. Its stages remain independently testable Kotlin
+components under `app/src/main/java/com/sheetsight/app/data/omr/`; the older
+`OnnxOmrEngine` contract is still only integrated through staff-grid assembly.
 
 ### 3.1 OMR foundation / architecture
 - `OmrEngine` (interface), `OmrResult`, `OmrState`, `OmrRepository`:
   define the contract for running OMR.
-- `OnnxOmrEngine`: coordinates the pipeline up to dewarping.
-  `recognize()` correctly runs the dewarping pipeline and then throws
-  `NotImplementedError` specifically for the missing later phases.
+- `OnnxOmrEngine`: coordinates decode through validated staff-grid assembly.
+  Its `recognize()` contract still throws `NotImplementedError` at that older
+  integration seam rather than fabricating an `OmrResult`.
+- `DefaultScoreOmrProcessor`: the UI-facing complete route through semantic
+  construction and MusicXML export, including temporary PDF-page rendering.
 - `OmrPageDewarpRunner`: orchestrates the end-to-end dewarping flow
   (inference → mask extraction → image alignment → dewarp).
 - `di/OmrModule.kt` provides `OrtEnvironment` and binds `OmrEngine`.
@@ -238,16 +268,17 @@ golden test passes on a OnePlus CPH2707 (Android 16, ARM64).
 
 | Package | Role |
 |---|---|
-| `data/omr` (root) | `OmrEngine` contract, `OmrResult`/`OmrState`, `OmrRepository`, `OnnxOmrEngine` — the (currently unimplemented) integration seam. |
+| `data/omr` (root) | OMR contracts, the older decode-through-staff-grid `OnnxOmrEngine` seam, and `DefaultScoreOmrProcessor`, which adapts imported image/PDF pages to the complete smoke-runner/export route. |
 | `data/omr/preprocessing` | Decode → canonical resize → BGR conversion → sliding-window tiling → ONNX tensor packing. Pure math split from `Mat`-dependent code wherever possible for JVM testability. |
 | `data/omr/inference` | ONNX Runtime session management, real per-tile inference, tile-prediction merging into full-page maps, and argmax class-mask extraction. |
 | `data/omr/dewarp` | Staffline geometry detection, gap-bridging, coordinate-map construction, and cubic remap — oemer's `dewarp.py` ported to Kotlin. |
 | `data/omr/staffline` | Row-density peak finding and 5-line staff grouping — oemer's `staffline_extraction.py`'s per-zone line-extraction half. |
-| `data/omr/track` | **New.** Barline-based track/system inference building blocks — oemer's `staffline_extraction.py`'s track-inference half plus `bbox.py`. Individually verified and tested; not yet assembled or wired in — see section 3.8. |
+| `data/omr/track` | Assembled and validated barline/staff-geometry track/system inference — oemer's `staffline_extraction.py` track-inference half plus `bbox.py`. |
 | `data/omr/semantic` | Immutable, image-independent semantic score model; evidence-backed measure construction; pitch and accidental resolution; recognition adapters; structured validation and summaries. |
 | `di` | Hilt modules: `DatabaseModule`, `DispatcherModule` (qualified `IoDispatcher`/`DefaultDispatcher`/`MainDispatcher`), `OmrModule` (`OrtEnvironment` + `OmrEngine` binding), `RepositoryModule`. |
 | `data/local`, `data/repository`, `domain` | Room persistence, file storage, and the `Score`/`ScoreRepository` domain layer — unrelated to OMR, already functional. |
-| `ui/*` | Compose screens per tab; only Library and Preview have real functionality today. |
+| `data/audio`, `data/practice`, `domain/practice` | Single-stream microphone/YIN analysis, stable onsets, PracticeSequence construction, clock/timing/progression, and bounded informational acoustic-duration tracking. |
+| `ui/*` | Functional Library, Preview, read-only Editor notation viewer, and Practice UI; Analysis remains a placeholder. |
 
 Design pattern used throughout the OMR packages: most classes are plain
 `object`s (stateless, pure functions) or `@Inject constructor` singletons
@@ -323,11 +354,13 @@ barline detection → track voting → assignment → validation
 [Semantic score construction] ✅ implemented + smoke-test integrated
 │
 ▼
-[MusicXML generation] 📋 planned — not started
+[MusicXML export via complete smoke-runner route] ✅ implemented
 │
 ▼
-Score.musicXmlPath persisted → Editor / Practice / Analysis tabs
-(all three: placeholder UI only)
+Score.musicXmlPath persisted → Editor notation viewer
+
+Independent MusicXML import → Practice Phases 7.0-7.4
+(microphone pitch/timing progression + informational acoustic duration)
 
 ---
 
@@ -337,20 +370,22 @@ In dependency order:
 
 1. **Finish Android-native validation** — instrumented tests against real
    OpenCV/ONNX Runtime and real page images.
-2. **Wire the tested semantic constructor into the production engine** when
-   the end-to-end pipeline integration phase is explicitly authorized.
-3. **MusicXML generation** remains a later, separate phase and has not been
-   started.
+2. **Unify production entry points** — `DefaultScoreOmrProcessor` already
+   runs the complete recognition/export route, while `OnnxOmrEngine.recognize()`
+   still ends at the older staff-grid integration seam.
+3. **Verify Phase 7.4 calibration acoustically** on real pianos/rooms, especially
+   release debounce, low-register decay, legato, and sustain resonance.
 
 ---
 
 ## 8. Testing
 
-The OMR pipeline is verified with **172 passing JVM unit tests**
+The codebase is verified with **311 passing JVM unit tests**
 (`app/src/test/...`). These verify the mathematical correctness of
 preprocessing, inference merging, mask extraction, full dewarping logic,
 staff identification, track voting, final grid validation, and typed
-classified-rest rhythm integration.
+classified-rest rhythm integration, plus MusicXML, Editor, Preview, and
+  Practice behavior. The focused Practice/audio subset contains 79 tests.
 
 | Test file | Covers |
 |---|---|
@@ -400,9 +435,9 @@ fields. Stage 14 adds concise semantic systems, staffs, measures, note,
 chord, rest, unresolved-event, and validation-warning counts. It retains no
 additional full-resolution debug image.
 
-No tests exist yet for: `OmrPreprocessor`, `OmrTensorFactory`,
-`OrtSessionProvider`, `TileInferenceRunner`, `PredictionMapMerger`,
-`OmrPageInferenceRunner`, or any UI/ViewModel/repository code.
+Remaining validation gaps are primarily Android/device-specific: real-page
+OpenCV/ONNX coverage beyond the existing classifier golden, and physical-piano
+acoustic calibration for Practice release/sustain behavior.
 
 ---
 
@@ -414,7 +449,7 @@ Confirmed from the project's own Gradle configuration:
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — **172 tests passing**.
+- **Tests**: `./gradlew testDebugUnitTest` — **311 tests passing**.
 - **Model assets**: the two segmentation models and four SVM ONNX exports
   are already under `app/src/main/assets/models/`.
 

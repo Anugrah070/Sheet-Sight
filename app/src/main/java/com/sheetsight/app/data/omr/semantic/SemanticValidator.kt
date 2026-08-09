@@ -8,7 +8,8 @@ enum class SemanticValidationCode {
     UNRESOLVED_DURATION,
     NON_DETERMINISTIC_ORDER,
     OVERLAPPING_MEASURES,
-    UNASSIGNED_ACCIDENTAL
+    UNASSIGNED_ACCIDENTAL,
+    UNRESOLVED_MEASURE_BOUNDARY
 }
 
 data class SemanticValidationWarning(

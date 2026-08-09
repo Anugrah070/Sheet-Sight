@@ -95,5 +95,6 @@ data class SymbolExtractionResult(
     val barlines: List<MusicalBarlineCandidate>,
     val clefs: List<ClefCandidate>,
     val accidentals: List<AccidentalCandidate>,
-    val rests: List<ClassifiedRestCandidate>
+    val rests: List<ClassifiedRestCandidate>,
+    val barlineDiagnostics: MusicalBarlineDiagnostics? = null
 )

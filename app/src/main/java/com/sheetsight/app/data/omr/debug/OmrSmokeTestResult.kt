@@ -75,6 +75,8 @@ data class OmrSmokeTestDiagnosticResult(
     val errorMessage: String? = null,
     /** App-private Stage 15 output; the debug UI may copy it to a user-selected document. */
     val musicXmlOutputPath: String? = null,
+    /** Debug-build-only portable ZIP containing previews, timings, detections, and XML. */
+    val debugBundlePath: String? = null,
     /** Populated only after the complete pipeline and Editor round trip succeed. */
     val accuracyReport: OmrAccuracyDiagnosticReport? = null
 )
@@ -85,19 +87,30 @@ data class OmrAccuracyDiagnosticReport(
     val inputResolution: String,
     val inputOrientation: String,
     val canonicalResolution: String,
+    val executionProfile: String,
+    val inferenceBatchSize: Int,
     val tileCounts: Map<String, Int>,
     val modelInferenceTimingsMs: Map<String, Long>,
+    val staffSystemCount: Int,
     val staffCount: Int,
     val trackVoteRawBarlineCount: Int,
     val trackVoteAcceptedBarlineCount: Int,
     val musicalBarlineFilterCounts: Map<String, Int>,
     val musicalBarlineCount: Int,
     val barlineXsBySystem: Map<Int, List<Int>>,
+    val barlineDetections: List<OmrLocatedDetection>,
     val noteheadCount: Int,
+    val noteheadDetections: List<OmrLocatedDetection>,
     val groupedNoteChordCount: Int,
     val clefCounts: Map<String, Int>,
     val accidentalCounts: Map<String, Int>,
     val restCounts: Map<String, Int>,
+    val restDetections: List<OmrLocatedDetection>,
+    val restCandidateFilterCounts: Map<String, Int>,
+    val restRejectedDetections: List<OmrLocatedDetection>,
+    val correctlyTypedRestCount: Int,
+    /** Final note/rest interpretation joined back to image coordinates and evidence. */
+    val interpretedEvents: List<OmrInterpretedEventDetection>,
     val rhythmResolvedCount: Int,
     val rhythmUnresolvedCount: Int,
     val semanticNoteCount: Int,
@@ -109,5 +122,40 @@ data class OmrAccuracyDiagnosticReport(
     val musicXmlBarlineLocations: List<String>,
     val editorParsedMeasureCount: Int,
     val editorRenderedMeasureCount: Int,
+    /** Null until a time signature is recognized or supplied as ground truth. */
+    val rhythmicallyValidMeasureCount: Int?,
     val musicXmlExportWarnings: List<String>
+)
+
+/** Image-coordinate evidence retained for ground-truth matching without retaining page masks. */
+data class OmrLocatedDetection(
+    val x: Int,
+    val y: Int,
+    val label: String,
+    val group: Int? = null,
+    val track: Int? = null,
+    val confidence: Double? = null
+)
+
+/** One machine-readable final event row for ground-truth pitch/rhythm comparison. */
+data class OmrInterpretedEventDetection(
+    val eventId: String,
+    /** Semantic chord/rest that owns this detection; shared by simultaneous chord notes. */
+    val ownerEventId: String? = null,
+    val measureIndex: Int? = null,
+    val kind: String,
+    val x: Int,
+    val y: Int,
+    val group: Int,
+    val track: Int,
+    val staffStep: Int? = null,
+    val clef: String? = null,
+    val accidental: String? = null,
+    val finalPitch: String? = null,
+    val durationNumerator: Int? = null,
+    val durationDenominator: Int? = null,
+    val rhythmState: String,
+    val evidence: String,
+    /** Null means uncalibrated/unknown, never an implicit 0 or 1. */
+    val confidence: Double? = null
 )

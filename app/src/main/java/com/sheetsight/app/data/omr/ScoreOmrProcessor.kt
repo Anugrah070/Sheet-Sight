@@ -1,6 +1,7 @@
 package com.sheetsight.app.data.omr
 
 import com.sheetsight.app.data.local.ScoreFileStorage
+import com.sheetsight.app.data.local.MusicXmlArtifactStore
 import com.sheetsight.app.data.omr.debug.OmrSmokeTestRunner
 import com.sheetsight.app.data.omr.debug.SmokeTestStage
 import com.sheetsight.app.di.IoDispatcher
@@ -28,6 +29,7 @@ interface ScoreOmrProcessor {
 class DefaultScoreOmrProcessor @Inject constructor(
     private val runner: OmrSmokeTestRunner,
     private val fileStorage: ScoreFileStorage,
+    private val artifactStore: MusicXmlArtifactStore,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ScoreOmrProcessor {
 
@@ -56,9 +58,10 @@ class DefaultScoreOmrProcessor @Inject constructor(
                 val detail = rawMessage.substringAfter(": ", rawMessage)
                 throw OmrPipelineException("Could not recognize this page: $detail")
             }
-            val musicXmlPath = diagnostic.musicXmlOutputPath
-                ?.takeIf { File(it).isFile }
-                ?: throw OmrPipelineException("Recognition finished without producing a MusicXML file.")
+            val musicXmlPath = artifactStore.inspect(diagnostic.musicXmlOutputPath)?.canonicalPath
+                ?: throw OmrPipelineException(
+                    "Recognition finished without a readable, non-empty MusicXML file in persistent score storage."
+                )
             listener?.onProgressUpdate(
                 OmrProgressUpdate(OmrStage.MUSICXML_GENERATION, overallPercentage = 100)
             )

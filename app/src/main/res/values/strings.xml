@@ -9,6 +9,8 @@
     <string name="nav_settings">Settings</string>
     <string name="nav_preview">Preview</string>
     <string name="nav_omr_smoke_test">OMR Smoke Test</string>
+    <string name="nav_acoustic_validation">Piano Acoustic Validation</string>
+    <string name="nav_guided_piano_capture">Guided Piano Recording</string>
 
     <string name="preview_loading">Loading score…</string>
     <string name="preview_error">Couldn\'t load the score.</string>
@@ -17,6 +19,10 @@
     <string name="preview_omr_running">Running</string>
     <string name="preview_omr_preparing">Preparing page for recognition</string>
     <string name="preview_omr_progress">%1$d%% complete</string>
+    <string name="preview_omr_completed">Recognition complete</string>
+    <string name="preview_omr_success_message">Your sheet music has been converted successfully.</string>
+    <string name="preview_view_rendered_score">View Rendered Score</string>
+    <string name="preview_back_to_library">Back to Library</string>
 
     <string name="library_placeholder">Your imported scores will appear here.</string>
     <string name="library_no_results">No scores match your search.</string>
@@ -37,6 +43,7 @@
     <string name="library_view_grid_cd">Switch to grid view</string>
 
     <string name="library_action_open">Open</string>
+    <string name="library_action_open_editor">Open in Editor</string>
     <string name="library_action_rename">Rename</string>
     <string name="library_action_delete">Delete</string>
     <string name="library_action_favorite">Add to favorites</string>
@@ -55,14 +62,26 @@
     <string name="action_save">Save</string>
     <string name="action_delete">Delete</string>
     <string name="action_retry">Retry</string>
-    <string name="editor_loading">Loading recognized score…</string>
+    <string name="editor_loading">Loading score…</string>
     <string name="editor_no_score_selected">Open a score from the Library to view its notation.</string>
     <string name="editor_no_musicxml">No recognized score is available yet.</string>
     <string name="editor_file_missing">The generated score file is missing or unreadable.</string>
+    <string name="editor_file_unreadable">This score file could not be opened.</string>
+    <string name="editor_file_empty">This score file is empty.</string>
     <string name="editor_parse_error">The recognized score could not be read.</string>
     <string name="editor_score_not_found">This score is no longer in the Library.</string>
+    <string name="editor_render_error">Unable to display this score.</string>
     <string name="editor_reset_zoom">Reset zoom</string>
+    <string name="editor_zoom_in">Zoom in</string>
+    <string name="editor_zoom_out">Zoom out</string>
+    <string name="editor_back">Back</string>
+    <string name="editor_more_options">Score options</string>
     <string name="editor_score_summary">%1$d measures · %2$d systems</string>
+    <string name="editor_playback_play">Play score</string>
+    <string name="editor_playback_pause">Pause playback</string>
+    <string name="editor_playback_resume">Resume playback</string>
+    <string name="editor_playback_stop">Stop playback</string>
+    <string name="editor_playback_initializing">Preparing offline playback…</string>
     <string name="practice_import_musicxml">Import MusicXML</string>
     <string name="practice_no_score">Import an uncompressed .musicxml or .xml score to begin.</string>
     <string name="practice_loading">Reading MusicXML…</string>
@@ -116,4 +135,6 @@
     <string name="settings_placeholder">App settings will appear here.</string>
     <string name="settings_developer_tools_heading">Developer tools</string>
     <string name="settings_omr_smoke_test_entry">OMR Smoke Test (Debug)</string>
+    <string name="settings_acoustic_validation_entry">Piano Acoustic Validation (Debug)</string>
+    <string name="settings_guided_piano_capture_entry">Guided Piano Recording + Export (Debug)</string>
 </resources>

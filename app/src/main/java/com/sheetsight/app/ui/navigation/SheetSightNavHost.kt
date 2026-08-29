@@ -1,5 +1,6 @@
 package com.sheetsight.app.ui.navigation
 
+import android.content.pm.ApplicationInfo
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -18,6 +20,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sheetsight.app.ui.analysis.AnalysisScreen
 import com.sheetsight.app.ui.debug.OmrSmokeTestScreen
+import com.sheetsight.app.ui.debug.AcousticValidationScreen
+import com.sheetsight.app.ui.debug.GuidedPianoCaptureScreen
 import com.sheetsight.app.ui.editor.EditorScreen
 import com.sheetsight.app.ui.library.LibraryScreen
 import com.sheetsight.app.ui.practice.PracticeScreen
@@ -34,12 +38,17 @@ import com.sheetsight.app.ui.settings.SettingsScreen
 fun SheetSightNavHost(
     navController: NavHostController = rememberNavController()
 ) {
+    val context = LocalContext.current
+    val isDebuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // Hide bottom bar for the Preview screen and the developer-only OMR smoke test
+    // Hide bottom bar for Preview and full-screen developer diagnostics.
     val showBottomBar = currentRoute != Destination.Preview.ROUTE_PATTERN &&
-            currentRoute != Destination.OmrSmokeTest.route
+            currentRoute != Destination.Editor.ROUTE_PATTERN &&
+            currentRoute != Destination.OmrSmokeTest.route &&
+            currentRoute != Destination.AcousticValidation.route &&
+            currentRoute != Destination.GuidedPianoCapture.route
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useNavigationRail = showBottomBar && maxWidth > maxHeight
@@ -69,8 +78,11 @@ fun SheetSightNavHost(
                 ) {
                     composable(Destination.Library.route) {
                         LibraryScreen(
-                            onOpenScore = { scoreId ->
-                                navController.navigate(Destination.Preview(scoreId).route)
+                            onOpenScore = { score ->
+                                navController.navigate(Destination.Preview(score.id).route)
+                            },
+                            onOpenEditor = { score ->
+                                navController.navigate(Destination.Editor.forScore(score.id))
                             }
                         )
                     }
@@ -84,13 +96,23 @@ fun SheetSightNavHost(
                         )
                     ) { backStackEntry ->
                         val scoreId = backStackEntry.arguments?.getLong("scoreId")?.takeIf { it > 0L }
-                        EditorScreen(scoreId = scoreId)
+                        EditorScreen(
+                            scoreId = scoreId,
+                            onBack = {
+                                if (!navController.popBackStack()) {
+                                    navController.navigate(Destination.Library.route) { launchSingleTop = true }
+                                }
+                            }
+                        )
                     }
                     composable(Destination.Practice.route) { PracticeScreen() }
                     composable(Destination.Analysis.route) { AnalysisScreen() }
                     composable(Destination.Settings.route) {
                         SettingsScreen(
-                            onOpenOmrSmokeTest = { navController.navigate(Destination.OmrSmokeTest.route) }
+                            showDeveloperTools = isDebuggable,
+                            onOpenOmrSmokeTest = { navController.navigate(Destination.OmrSmokeTest.route) },
+                            onOpenAcousticValidation = { navController.navigate(Destination.AcousticValidation.route) },
+                            onOpenGuidedPianoCapture = { navController.navigate(Destination.GuidedPianoCapture.route) }
                         )
                     }
                     composable(
@@ -108,6 +130,12 @@ fun SheetSightNavHost(
                     }
                     composable(Destination.OmrSmokeTest.route) {
                         OmrSmokeTestScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(Destination.AcousticValidation.route) {
+                        AcousticValidationScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(Destination.GuidedPianoCapture.route) {
+                        GuidedPianoCaptureScreen(onBack = { navController.popBackStack() })
                     }
                 }
             }

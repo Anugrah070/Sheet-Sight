@@ -5,12 +5,11 @@ import com.sheetsight.app.data.omr.OmrResult
 import com.sheetsight.app.data.omr.ScoreOmrProcessor
 import com.sheetsight.app.domain.model.Score
 import com.sheetsight.app.domain.repository.ScoreRepository
+import com.sheetsight.app.domain.repository.GeneratedScoreDeletionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -30,14 +29,13 @@ class PreviewViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `successful OMR persists MusicXML and requests Editor`() = runTest(dispatcher) {
+    fun `successful OMR persists MusicXML and reaches completed state`() = runTest(dispatcher) {
         val repository = FakeScoreRepository(score())
         val processor = FakeScoreOmrProcessor(resultPath = "generated.musicxml")
         val viewModel = PreviewViewModel(repository, processor)
         viewModel.loadScore(SCORE_ID)
         advanceUntilIdle()
 
-        val event = async { viewModel.events.first() }
         viewModel.onPageChanged(2)
         viewModel.onRunOmrRequested()
         advanceUntilIdle()
@@ -45,8 +43,7 @@ class PreviewViewModelTest {
         assertEquals(SCORE_ID, processor.recognizedScoreId)
         assertEquals(2, processor.recognizedPage)
         assertEquals("generated.musicxml", repository.persistedMusicXmlPath)
-        assertEquals(PreviewEvent.OpenEditor(SCORE_ID), event.await())
-        assertTrue(viewModel.uiState.value.recognition is PreviewRecognitionState.Idle)
+        assertTrue(viewModel.uiState.value.recognition is PreviewRecognitionState.Completed)
     }
 
     @Test
@@ -96,6 +93,7 @@ class PreviewViewModelTest {
         var persistedMusicXmlPath: String? = null
 
         override fun getAllScores(): Flow<List<Score>> = error("Not used")
+        override fun observeEditorScores(): Flow<List<Score>> = error("Not used")
         override fun getFavoriteScores(): Flow<List<Score>> = error("Not used")
         override fun getScoreById(id: Long): Flow<Score?> = value
         override suspend fun addScore(score: Score): Long = error("Not used")
@@ -107,10 +105,17 @@ class PreviewViewModelTest {
         }
         override suspend fun updateLastViewedZoom(id: Long, zoom: Float) = Unit
         override suspend fun updatePracticeProgress(id: Long, progress: Float) = Unit
-        override suspend fun setMusicXmlPath(id: Long, path: String) {
+        override suspend fun setGeneratedMusicXmlPath(id: Long, path: String) {
             persistedMusicXmlPath = path
-            value.value = value.value?.copy(musicXmlPath = path)
+            value.value = value.value?.copy(
+                originalMusicXmlPath = value.value?.originalMusicXmlPath ?: path,
+                currentMusicXmlPath = path
+            )
         }
+        override suspend fun setCurrentMusicXmlPath(id: Long, path: String) {
+            value.value = value.value?.copy(currentMusicXmlPath = path)
+        }
+        override suspend fun deleteGeneratedScore(id: Long): GeneratedScoreDeletionResult = error("Not used")
     }
 
     private companion object { const val SCORE_ID = 42L }

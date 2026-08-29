@@ -93,7 +93,7 @@ class ScoreFileStorage @Inject constructor(
     /**
      * Writes UTF-8 MusicXML bytes beside imported scores in app-private storage.
      * The stable target name is replaced on a repeated export so a persisted
-     * [com.sheetsight.app.domain.model.Score.musicXmlPath] never drifts.
+     * [com.sheetsight.app.domain.model.Score.currentMusicXmlPath] never drifts.
      */
     fun writeMusicXml(outputName: String, utf8Bytes: ByteArray): File {
         val requestedName = sanitizeFileName(outputName).ifBlank { "score" }

@@ -20,7 +20,8 @@ import javax.inject.Inject
  * persists a new [Score] row via [ScoreRepository].
  *
  * Deliberately does **not** run OMR or produce a MusicXML file — that's
- * Phase 4. [Score.musicXmlPath] is left null here.
+ * Phase 4. [Score.originalMusicXmlPath] and [Score.currentMusicXmlPath] are
+ * left null here.
  *
  * Errors are caught and converted to a user-facing message rather than
  * thrown, so callers (the ViewModel) can render failure without a

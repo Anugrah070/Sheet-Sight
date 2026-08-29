@@ -75,6 +75,30 @@ class AcousticNoteEventTrackerTest {
     }
 
     @Test
+    fun `observation limit with persistent target is sustain ambiguous rather than confident long`() {
+        val tracker = AcousticNoteEventTracker()
+        tracker.acceptNote(step(), C4, 0L, 60)
+
+        tracker.process(frame(C4, 1_000L, level = 0.08))
+        tracker.process(frame(C4, 2_000L, level = 0.06))
+        val result = tracker.process(frame(C4, 2_600L, level = 0.05)).completed.single()
+
+        assertEquals(DurationFeedback.SustainAmbiguous, result.feedback)
+    }
+
+    @Test
+    fun `genuine debounced silence after a long hold can still report long`() {
+        val tracker = AcousticNoteEventTracker()
+        tracker.acceptNote(step(), C4, 0L, 60)
+        tracker.process(frame(C4, 1_700L, level = 0.05))
+        tracker.process(frame(null, 1_750L, level = 0.0))
+        tracker.process(frame(null, 1_950L, level = 0.0))
+        val result = tracker.process(frame(null, 2_000L, level = 0.0)).completed.single()
+
+        assertEquals(DurationFeedback.Long, result.feedback)
+    }
+
+    @Test
     fun `pause interval is excluded from observed duration`() {
         val tracker = AcousticNoteEventTracker()
         tracker.acceptNote(step(), C4, 0L, 60)

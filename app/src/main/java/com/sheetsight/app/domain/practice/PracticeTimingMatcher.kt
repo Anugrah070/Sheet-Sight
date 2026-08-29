@@ -40,6 +40,13 @@ class PracticeTimingMatcher(
         detected: DetectedPitch?,
         actualBeat: Double,
         bpm: Int
+    ): PracticeMatchResult = match(step, detected?.let(::listOf).orEmpty(), actualBeat, bpm)
+
+    fun match(
+        step: PracticeStep,
+        detected: List<DetectedPitch>,
+        actualBeat: Double,
+        bpm: Int
     ): PracticeMatchResult {
         val pitchState = pitchMatcher.match(step, detected)
         if (pitchState != MatchState.CorrectPitchOnly) return PracticeMatchResult(pitchState)

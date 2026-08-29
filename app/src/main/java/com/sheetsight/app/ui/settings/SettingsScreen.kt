@@ -35,7 +35,10 @@ import com.sheetsight.app.ui.common.PlaceholderContent
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
-    onOpenOmrSmokeTest: () -> Unit = {}
+    showDeveloperTools: Boolean = false,
+    onOpenOmrSmokeTest: () -> Unit = {},
+    onOpenAcousticValidation: () -> Unit = {},
+    onOpenGuidedPianoCapture: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -46,10 +49,14 @@ fun SettingsScreen(
                     message = stringResource(R.string.settings_placeholder),
                     modifier = Modifier.weight(1f)
                 )
-                DeveloperTools(
-                    onOpenOmrSmokeTest = onOpenOmrSmokeTest,
-                    modifier = Modifier.weight(1f).fillMaxHeight()
-                )
+                if (showDeveloperTools) {
+                    DeveloperTools(
+                        onOpenOmrSmokeTest = onOpenOmrSmokeTest,
+                        onOpenAcousticValidation = onOpenAcousticValidation,
+                        onOpenGuidedPianoCapture = onOpenGuidedPianoCapture,
+                        modifier = Modifier.weight(1f).fillMaxHeight()
+                    )
+                }
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -57,8 +64,14 @@ fun SettingsScreen(
                     message = stringResource(R.string.settings_placeholder),
                     modifier = Modifier.weight(1f)
                 )
-                HorizontalDivider()
-                DeveloperTools(onOpenOmrSmokeTest = onOpenOmrSmokeTest)
+                if (showDeveloperTools) {
+                    HorizontalDivider()
+                    DeveloperTools(
+                        onOpenOmrSmokeTest = onOpenOmrSmokeTest,
+                        onOpenAcousticValidation = onOpenAcousticValidation,
+                        onOpenGuidedPianoCapture = onOpenGuidedPianoCapture
+                    )
+                }
             }
         }
     }
@@ -67,6 +80,8 @@ fun SettingsScreen(
 @Composable
 private fun DeveloperTools(
     onOpenOmrSmokeTest: () -> Unit,
+    onOpenAcousticValidation: () -> Unit,
+    onOpenGuidedPianoCapture: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -80,6 +95,12 @@ private fun DeveloperTools(
         Spacer(modifier = Modifier.height(4.dp))
         TextButton(onClick = onOpenOmrSmokeTest) {
             Text(stringResource(R.string.settings_omr_smoke_test_entry))
+        }
+        TextButton(onClick = onOpenAcousticValidation) {
+            Text(stringResource(R.string.settings_acoustic_validation_entry))
+        }
+        TextButton(onClick = onOpenGuidedPianoCapture) {
+            Text(stringResource(R.string.settings_guided_piano_capture_entry))
         }
     }
 }

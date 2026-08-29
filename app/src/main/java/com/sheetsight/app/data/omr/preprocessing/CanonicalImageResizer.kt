@@ -23,8 +23,10 @@ import kotlin.math.sqrt
  */
 object CanonicalImageResizer {
 
-    private const val TARGET_PIXELS_LOWER_BOUND = 3_000_000.0
-    private const val TARGET_PIXELS_UPPER_BOUND = 4_350_000.0
+    const val TARGET_PIXELS_LOWER_BOUND = 3_000_000
+    const val TARGET_PIXELS_UPPER_BOUND = 4_350_000
+    const val DEFAULT_TARGET_PIXELS =
+        (TARGET_PIXELS_LOWER_BOUND + TARGET_PIXELS_UPPER_BOUND) / 2
 
     /**
      * Pure size computation, kept separate from [resize] so the scaling
@@ -32,13 +34,23 @@ object CanonicalImageResizer {
      * native library.
      */
     fun computeTargetSize(sourceWidth: Int, sourceHeight: Int): TargetSize {
+        return computeTargetSize(sourceWidth, sourceHeight, DEFAULT_TARGET_PIXELS)
+    }
+
+    /** Controlled debug/evaluation profile; production uses [DEFAULT_TARGET_PIXELS]. */
+    fun computeTargetSize(
+        sourceWidth: Int,
+        sourceHeight: Int,
+        targetPixels: Int
+    ): TargetSize {
         require(sourceWidth > 0 && sourceHeight > 0) {
             "Source dimensions must be positive, got ${sourceWidth}x$sourceHeight"
         }
+        require(targetPixels in TARGET_PIXELS_LOWER_BOUND..TARGET_PIXELS_UPPER_BOUND) {
+            "targetPixels must stay inside the models' trained range, got $targetPixels"
+        }
         val pixelCount = sourceWidth.toDouble() * sourceHeight.toDouble()
-        val lowerRatio = TARGET_PIXELS_LOWER_BOUND / pixelCount
-        val upperRatio = TARGET_PIXELS_UPPER_BOUND / pixelCount
-        val scale = sqrt((lowerRatio + upperRatio) / 2.0)
+        val scale = sqrt(targetPixels / pixelCount)
         return TargetSize(
             width = (scale * sourceWidth).roundToInt(),
             height = (scale * sourceHeight).roundToInt()
@@ -52,8 +64,8 @@ object CanonicalImageResizer {
      * never passes an explicit `resample` argument, so BICUBIC is what
      * the checkpoints were actually trained against.
      */
-    fun resize(source: Mat): Mat {
-        val target = computeTargetSize(source.width(), source.height())
+    fun resize(source: Mat, targetPixels: Int = DEFAULT_TARGET_PIXELS): Mat {
+        val target = computeTargetSize(source.width(), source.height(), targetPixels)
         val destination = Mat()
         Imgproc.resize(
             source,

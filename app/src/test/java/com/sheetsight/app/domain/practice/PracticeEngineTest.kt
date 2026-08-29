@@ -1,7 +1,5 @@
 package com.sheetsight.app.domain.practice
 
-import com.sheetsight.app.data.audio.NoteOnsetEvidence
-import com.sheetsight.app.data.audio.StablePitchEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -62,6 +60,29 @@ class PracticeEngineTest {
         fixture.engine.onPitchEvent(fixture.stable('C'))
         fixture.engine.onPitchEvent(fixture.stable('D', NoteOnsetEvidence.PitchTransition))
         assertEquals(PracticePhase.Completed, fixture.engine.progress.phase)
+    }
+
+    @Test
+    fun `confirmed chord advances once while a partial chord cannot advance`() {
+        val chord = PracticeStep(
+            index = 0,
+            measureNumber = "1",
+            staffs = listOf(1),
+            expectedPitches = listOf('C', 'E', 'G').map { PracticePitch(it, 0, 4) },
+            sourceNoteIds = listOf("c", "e", "g"),
+            onsetDivisions = 0,
+            startBeat = MusicalBeat.of(0),
+            durationBeats = MusicalBeat.of(1),
+            measureBeat = MusicalBeat.of(0)
+        )
+        val fixture = started(chord)
+        fixture.engine.onPitchEvent(fixture.stable('C'))
+        assertEquals(0, fixture.engine.progress.currentStepIndex)
+
+        val pitches = listOf('C', 'E', 'G').map(fixture::detected)
+        fixture.engine.onPitchEvent(StablePitchEvent.NoteGroup(pitches, 0L, 0.92))
+        assertEquals(PracticePhase.Completed, fixture.engine.progress.phase)
+        assertEquals(1, fixture.engine.progress.currentStepIndex)
     }
 
     @Test

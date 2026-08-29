@@ -1,0 +1,1423 @@
+{
+  "formatVersion": 1,
+  "pageId": "happy-birthday-little-chords-reference-page",
+  "annotationStatus": "COMPLETE",
+  "eligibleForMetrics": true,
+  "timeSignature": { "beats": 3, "beatType": 4 },
+  "pickupMeasures": [0],
+  "matchingToleranceStaffSpaces": 0.5,
+  "annotationReview": {
+    "method": "Two-pass manual transcription from the source raster; pitches/rhythms cross-checked against staff geometry and measure sums.",
+    "reviewedOn": "2026-08-25",
+    "expectedNoteheadCount": 48,
+    "expectedRestCount": 0,
+    "expectedChordEventCount": 9
+  },
+  "source": {
+    "width": 494,
+    "height": 607,
+    "sha256": "046FF8238AD36DF2E6A6BDDF9D2B3EB45C1D5A6EA0E187B98AE12DC9B3C3EE79",
+    "orientation": "TOP_LEFT"
+  },
+  "expected": {
+    "systemCount": 3,
+    "staffCount": 6,
+    "measureCount": 9
+  },
+  "systems": [
+    {
+      "id": "system-0",
+      "index": 0,
+      "yBand": [
+        100,
+        211
+      ],
+      "barlineXs": [
+        75,
+        195,
+        311,
+        461
+      ],
+      "staffs": [
+        {
+          "id": "hb-s0-treble",
+          "track": 0,
+          "order": "TREBLE",
+          "lineYsAtCenterX": [
+            110,
+            116,
+            122,
+            129,
+            135
+          ],
+          "clef": "TREBLE",
+          "keyFlats": 1,
+          "time": [
+            3,
+            4
+          ]
+        },
+        {
+          "id": "hb-s0-bass",
+          "track": 1,
+          "order": "BASS",
+          "lineYsAtCenterX": [
+            185,
+            191,
+            198,
+            204,
+            210
+          ],
+          "clef": "BASS",
+          "keyFlats": 1,
+          "time": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "system-1",
+      "index": 1,
+      "yBand": [
+        268,
+        379
+      ],
+      "barlineXs": [
+        53,
+        215,
+        346,
+        463
+      ],
+      "staffs": [
+        {
+          "id": "hb-s1-treble",
+          "track": 0,
+          "order": "TREBLE",
+          "lineYsAtCenterX": [
+            278,
+            284,
+            290,
+            297,
+            303
+          ],
+          "clef": "TREBLE",
+          "keyFlats": 1,
+          "time": null
+        },
+        {
+          "id": "hb-s1-bass",
+          "track": 1,
+          "order": "BASS",
+          "lineYsAtCenterX": [
+            353,
+            359,
+            366,
+            372,
+            378
+          ],
+          "clef": "BASS",
+          "keyFlats": 1,
+          "time": null
+        }
+      ]
+    },
+    {
+      "id": "system-2",
+      "index": 2,
+      "yBand": [
+        439,
+        550
+      ],
+      "barlineXs": [
+        53,
+        241,
+        375,
+        461
+      ],
+      "staffs": [
+        {
+          "id": "hb-s2-treble",
+          "track": 0,
+          "order": "TREBLE",
+          "lineYsAtCenterX": [
+            449,
+            455,
+            461,
+            467,
+            474
+          ],
+          "clef": "TREBLE",
+          "keyFlats": 1,
+          "time": null
+        },
+        {
+          "id": "hb-s2-bass",
+          "track": 1,
+          "order": "BASS",
+          "lineYsAtCenterX": [
+            524,
+            530,
+            536,
+            542,
+            549
+          ],
+          "clef": "BASS",
+          "keyFlats": 1,
+          "time": null
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "id": "hb-s0-t0-e00",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 0,
+      "staff": 0,
+      "voice": 1,
+      "x": 158,
+      "y": 140,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e00",
+      "stem": "UP",
+      "beams": 1,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e01",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 0,
+      "staff": 0,
+      "voice": 1,
+      "x": 182,
+      "y": 140,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e01",
+      "stem": "UP",
+      "beams": 2,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e02",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 1,
+      "staff": 0,
+      "voice": 1,
+      "x": 204,
+      "y": 138,
+      "pitch": {
+        "step": "D",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e02",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e03",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 1,
+      "staff": 0,
+      "voice": 1,
+      "x": 242,
+      "y": 140,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e03",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e04",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 1,
+      "staff": 0,
+      "voice": 1,
+      "x": 278,
+      "y": 132,
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e04",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e05",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 2,
+      "staff": 0,
+      "voice": 1,
+      "x": 326,
+      "y": 135,
+      "pitch": {
+        "step": "E",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s0-t0-e05",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e06",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 2,
+      "staff": 0,
+      "voice": 1,
+      "x": 406,
+      "y": 140,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e06",
+      "stem": "UP",
+      "beams": 1,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t0-e07",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 2,
+      "staff": 0,
+      "voice": 1,
+      "x": 446,
+      "y": 140,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s0-t0-e07",
+      "stem": "UP",
+      "beams": 2,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e08",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 3,
+      "staff": 0,
+      "voice": 1,
+      "x": 101,
+      "y": 306,
+      "pitch": {
+        "step": "D",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e08",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e09",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 3,
+      "staff": 0,
+      "voice": 1,
+      "x": 141,
+      "y": 309,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e09",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e10",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 3,
+      "staff": 0,
+      "voice": 1,
+      "x": 180,
+      "y": 294,
+      "pitch": {
+        "step": "G",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e10",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e11",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 4,
+      "staff": 0,
+      "voice": 1,
+      "x": 225,
+      "y": 300,
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-t0-e11",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e12",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 4,
+      "staff": 0,
+      "voice": 1,
+      "x": 297,
+      "y": 309,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e12",
+      "stem": "UP",
+      "beams": 1,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e13",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 4,
+      "staff": 0,
+      "voice": 1,
+      "x": 333,
+      "y": 309,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e13",
+      "stem": "UP",
+      "beams": 2,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e14",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 5,
+      "staff": 0,
+      "voice": 1,
+      "x": 356,
+      "y": 287,
+      "pitch": {
+        "step": "C",
+        "octave": 5,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e14",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e15",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 5,
+      "staff": 0,
+      "voice": 1,
+      "x": 393,
+      "y": 294,
+      "pitch": {
+        "step": "A",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e15",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t0-e16",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 5,
+      "staff": 0,
+      "voice": 1,
+      "x": 432,
+      "y": 300,
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s1-t0-e16",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e17",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 6,
+      "staff": 0,
+      "voice": 1,
+      "x": 97,
+      "y": 472,
+      "pitch": {
+        "step": "E",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e17",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e18",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 6,
+      "staff": 0,
+      "voice": 1,
+      "x": 142,
+      "y": 477,
+      "pitch": {
+        "step": "D",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e18",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e19",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 6,
+      "staff": 0,
+      "voice": 1,
+      "x": 190,
+      "y": 458,
+      "pitch": {
+        "step": "B",
+        "octave": 4,
+        "alter": -1
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e19",
+      "stem": "DOWN",
+      "beams": 1,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e20",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 6,
+      "staff": 0,
+      "voice": 1,
+      "x": 228,
+      "y": 458,
+      "pitch": {
+        "step": "B",
+        "octave": 4,
+        "alter": -1
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e20",
+      "stem": "DOWN",
+      "beams": 2,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 16
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e21",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 0,
+      "voice": 1,
+      "x": 250,
+      "y": 464,
+      "pitch": {
+        "step": "A",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e21",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e22",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 0,
+      "voice": 1,
+      "x": 293,
+      "y": 471,
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e22",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e23",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 0,
+      "voice": 1,
+      "x": 336,
+      "y": 465,
+      "pitch": {
+        "step": "G",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-t0-e23",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t0-e24",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 8,
+      "staff": 0,
+      "voice": 1,
+      "x": 385,
+      "y": 471,
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-t0-e24",
+      "stem": "UP",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t1-e25",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 1,
+      "staff": 1,
+      "voice": 1,
+      "x": 206,
+      "y": 191,
+      "pitch": {
+        "step": "F",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s0-m1-bass-25",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t1-e26",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 1,
+      "staff": 1,
+      "voice": 1,
+      "x": 206,
+      "y": 185,
+      "pitch": {
+        "step": "A",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s0-m1-bass-25",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t1-e27",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 1,
+      "staff": 1,
+      "voice": 1,
+      "x": 206,
+      "y": 179,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s0-m1-bass-25",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t1-e28",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 2,
+      "staff": 1,
+      "voice": 1,
+      "x": 317,
+      "y": 182,
+      "pitch": {
+        "step": "B",
+        "octave": 3,
+        "alter": -1
+      },
+      "head": "OPEN",
+      "chordId": "hb-s0-m2-bass-28",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s0-t1-e29",
+      "kind": "NOTEHEAD",
+      "system": 0,
+      "measure": 2,
+      "staff": 1,
+      "voice": 1,
+      "x": 329,
+      "y": 179,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s0-m2-bass-28",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e30",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 3,
+      "staff": 1,
+      "voice": 1,
+      "x": 94,
+      "y": 350,
+      "pitch": {
+        "step": "B",
+        "octave": 3,
+        "alter": -1
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m3-bass-30",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e31",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 3,
+      "staff": 1,
+      "voice": 1,
+      "x": 102,
+      "y": 347,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m3-bass-30",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e32",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 4,
+      "staff": 1,
+      "voice": 1,
+      "x": 224,
+      "y": 359,
+      "pitch": {
+        "step": "F",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m4-bass-32",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e33",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 4,
+      "staff": 1,
+      "voice": 1,
+      "x": 224,
+      "y": 353,
+      "pitch": {
+        "step": "A",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m4-bass-32",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e34",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 4,
+      "staff": 1,
+      "voice": 1,
+      "x": 224,
+      "y": 347,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m4-bass-32",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e35",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 5,
+      "staff": 1,
+      "voice": 1,
+      "x": 356,
+      "y": 359,
+      "pitch": {
+        "step": "F",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m5-bass-35",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e36",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 5,
+      "staff": 1,
+      "voice": 1,
+      "x": 356,
+      "y": 353,
+      "pitch": {
+        "step": "A",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m5-bass-35",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s1-t1-e37",
+      "kind": "NOTEHEAD",
+      "system": 1,
+      "measure": 5,
+      "staff": 1,
+      "voice": 1,
+      "x": 356,
+      "y": 347,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s1-m5-bass-35",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e38",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 6,
+      "staff": 1,
+      "voice": 1,
+      "x": 98,
+      "y": 521,
+      "pitch": {
+        "step": "B",
+        "octave": 3,
+        "alter": -1
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m6-bass-38",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e39",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 6,
+      "staff": 1,
+      "voice": 1,
+      "x": 98,
+      "y": 515,
+      "pitch": {
+        "step": "D",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m6-bass-38",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e40",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 1,
+      "voice": 1,
+      "x": 249,
+      "y": 530,
+      "pitch": {
+        "step": "F",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m7-bass-40",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e41",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 1,
+      "voice": 1,
+      "x": 249,
+      "y": 524,
+      "pitch": {
+        "step": "A",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m7-bass-40",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e42",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 1,
+      "voice": 1,
+      "x": 249,
+      "y": 518,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m7-bass-40",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 2
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e43",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 1,
+      "voice": 1,
+      "x": 329,
+      "y": 521,
+      "pitch": {
+        "step": "B",
+        "octave": 3,
+        "alter": -1
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-m7-bass-43",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e44",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 7,
+      "staff": 1,
+      "voice": 1,
+      "x": 337,
+      "y": 518,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "FILLED",
+      "chordId": "hb-s2-m7-bass-43",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 0,
+      "duration": {
+        "numerator": 1,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e45",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 8,
+      "staff": 1,
+      "voice": 1,
+      "x": 384,
+      "y": 530,
+      "pitch": {
+        "step": "F",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m8-bass-45",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e46",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 8,
+      "staff": 1,
+      "voice": 1,
+      "x": 384,
+      "y": 524,
+      "pitch": {
+        "step": "A",
+        "octave": 3,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m8-bass-45",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    },
+    {
+      "id": "hb-s2-t1-e47",
+      "kind": "NOTEHEAD",
+      "system": 2,
+      "measure": 8,
+      "staff": 1,
+      "voice": 1,
+      "x": 384,
+      "y": 518,
+      "pitch": {
+        "step": "C",
+        "octave": 4,
+        "alter": 0
+      },
+      "head": "OPEN",
+      "chordId": "hb-s2-m8-bass-45",
+      "stem": "DOWN",
+      "beams": 0,
+      "flags": 0,
+      "dots": 1,
+      "duration": {
+        "numerator": 3,
+        "denominator": 4
+      },
+      "accidental": null
+    }
+  ]
+}

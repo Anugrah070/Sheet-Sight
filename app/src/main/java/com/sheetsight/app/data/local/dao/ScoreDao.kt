@@ -29,8 +29,22 @@ interface ScoreDao {
     @Query("SELECT * FROM scores WHERE id = :id")
     fun getById(id: Long): Flow<ScoreEntity?>
 
+    @Query("SELECT * FROM scores WHERE id = :id")
+    suspend fun getByIdOnce(id: Long): ScoreEntity?
+
     @Query("SELECT * FROM scores ORDER BY import_date DESC")
     fun getAll(): Flow<List<ScoreEntity>>
+
+    /** Database candidates only; repository storage validation decides final eligibility. */
+    @Query(
+        """
+        SELECT * FROM scores
+        WHERE current_music_xml_path IS NOT NULL
+          AND TRIM(current_music_xml_path) != ''
+        ORDER BY import_date DESC
+        """
+    )
+    fun getEditorCandidates(): Flow<List<ScoreEntity>>
 
     @Query("SELECT * FROM scores WHERE is_favorite = 1 ORDER BY import_date DESC")
     fun getFavorites(): Flow<List<ScoreEntity>>
@@ -47,6 +61,59 @@ interface ScoreDao {
     @Query("UPDATE scores SET practice_progress = :progress WHERE id = :id")
     suspend fun updatePracticeProgress(id: Long, progress: Float)
 
-    @Query("UPDATE scores SET music_xml_path = :path WHERE id = :id")
-    suspend fun updateMusicXmlPath(id: Long, path: String)
+    @Query(
+        """
+        UPDATE scores
+        SET original_music_xml_path = COALESCE(original_music_xml_path, :path),
+            current_music_xml_path = :path,
+            music_xml_path = NULL
+        WHERE id = :id
+        """
+    )
+    suspend fun setGeneratedMusicXmlPath(id: Long, path: String)
+
+    @Query("UPDATE scores SET current_music_xml_path = :path, music_xml_path = NULL WHERE id = :id")
+    suspend fun updateCurrentMusicXmlPath(id: Long, path: String)
+
+    @Query(
+        """
+        UPDATE scores
+        SET current_music_xml_path = :newPath, music_xml_path = NULL
+        WHERE id = :id AND current_music_xml_path = :expectedCurrentPath
+        """
+    )
+    suspend fun replaceCurrentMusicXmlPath(
+        id: Long,
+        expectedCurrentPath: String,
+        newPath: String
+    ): Int
+
+    @Query(
+        """
+        UPDATE scores
+        SET original_music_xml_path = CASE
+                WHEN original_music_xml_path = :expectedCurrentPath THEN NULL
+                ELSE original_music_xml_path
+            END,
+            current_music_xml_path = NULL,
+            music_xml_path = NULL
+        WHERE id = :id AND current_music_xml_path = :expectedCurrentPath
+        """
+    )
+    suspend fun clearGeneratedCurrentPath(id: Long, expectedCurrentPath: String): Int
+
+    @Query(
+        """
+        UPDATE scores
+        SET original_music_xml_path = :originalPath,
+            current_music_xml_path = :currentPath,
+            music_xml_path = NULL
+        WHERE id = :id AND current_music_xml_path IS NULL
+        """
+    )
+    suspend fun restoreGeneratedPaths(
+        id: Long,
+        originalPath: String?,
+        currentPath: String
+    ): Int
 }

@@ -10,6 +10,10 @@ class PitchMatcherTest {
     @Test fun `expected C4 and detected C4 is correct`() = assertEquals(MatchState.CorrectPitchOnly, matcher.match(c4Step, detected('C')))
     @Test fun `expected C4 and detected D4 is incorrect`() = assertEquals(MatchState.WrongPitch, matcher.match(c4Step, detected('D')))
     @Test fun `low confidence does not match`() = assertEquals(MatchState.LowConfidence, matcher.match(c4Step, detected('C', confidence = 0.2)))
+    @Test fun `score gate threshold is accepted by domain matcher`() = assertEquals(
+        MatchState.CorrectPitchOnly,
+        matcher.match(c4Step, detected('C', confidence = 0.52))
+    )
     @Test fun `silence does not match`() = assertEquals(MatchState.LowConfidence, matcher.match(c4Step, null))
     @Test fun `pitch inside cents tolerance is correct`() = assertEquals(MatchState.CorrectPitchOnly, matcher.match(c4Step, detected('C', cents = 34.9)))
     @Test fun `pitch outside cents tolerance is incorrect`() = assertEquals(MatchState.WrongPitch, matcher.match(c4Step, detected('C', cents = 35.1)))
@@ -17,9 +21,17 @@ class PitchMatcherTest {
         MatchState.CorrectPitchOnly,
         matcher.match(step(PracticePitch('G', -1, 4)), detected('F', alteration = 1))
     )
-    @Test fun `monophonic detection never completes chord`() = assertEquals(
-        MatchState.Unsupported,
+    @Test fun `a partial chord is wrong rather than complete`() = assertEquals(
+        MatchState.WrongPitch,
         matcher.match(step(PracticePitch('C', 0, 4), PracticePitch('E', 0, 4)), detected('C'))
+    )
+
+    @Test fun `complete chord matches as an unordered distinct pitch set`() = assertEquals(
+        MatchState.CorrectPitchOnly,
+        matcher.match(
+            step(PracticePitch('C', 0, 4), PracticePitch('E', 0, 4), PracticePitch('G', 0, 4)),
+            listOf(detected('G'), detected('C'), detected('E'))
+        )
     )
 
     private fun step(vararg pitches: PracticePitch) = PracticeStep(0, "1", listOf(1), pitches.toList(), listOf("id"), 0)

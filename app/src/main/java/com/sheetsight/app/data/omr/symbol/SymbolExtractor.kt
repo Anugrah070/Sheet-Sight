@@ -58,7 +58,7 @@ class SymbolExtractor @Inject constructor(
             staffGrid,
             noteIdMap
         )
-        val rests = restExtractor.extract(
+        val restResult = restExtractor.extractWithDiagnostics(
             grouping.groupMap,
             masks.stemsRests,
             mergedSymbols,
@@ -72,8 +72,9 @@ class SymbolExtractor @Inject constructor(
             barlines = barlineResult.candidates,
             clefs = clefsAndAccidentals.clefs,
             accidentals = clefsAndAccidentals.accidentals,
-            rests = rests,
-            barlineDiagnostics = barlineResult.diagnostics
+            rests = restResult.candidates,
+            barlineDiagnostics = barlineResult.diagnostics,
+            restDiagnostics = restResult.diagnostics
         )
     }
 

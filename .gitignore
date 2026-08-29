@@ -12,3 +12,7 @@ local.properties
 /app/release
 *.apk
 *.aab
+
+# Phase 7.5A local acoustic benchmark recordings are deliberately opt-in and
+# stay on the developer machine. Only the label template/documentation is tracked.
+/tools/practice-audio/local-recordings/

@@ -8,8 +8,9 @@ package com.sheetsight.app.domain.model
  * @property id Room-assigned identifier; 0 for a score not yet persisted.
  * @property title Display name for the score (e.g. "Moonlight Sonata").
  * @property originalFilePath Absolute path to the source PDF/JPG/PNG on device storage.
- * @property musicXmlPath Absolute path to the corrected MusicXML file, once OMR (Phase 4)
- *   and/or manual editing (Phase 5) have produced one. Null until then.
+ * @property originalMusicXmlPath Immutable path to the first MusicXML produced by OMR.
+ * @property currentMusicXmlPath Authoritative path to the latest saved MusicXML version.
+ *   Editor and future score consumers must resolve this field rather than the original.
  * @property importDate Epoch-millis timestamp of when the score was first imported.
  * @property lastOpenedDate Epoch-millis timestamp of the most recent open, for
  *   "continue where you left off" / recency sorting. Null if never opened.
@@ -24,7 +25,8 @@ data class Score(
     val id: Long = 0,
     val title: String,
     val originalFilePath: String,
-    val musicXmlPath: String? = null,
+    val originalMusicXmlPath: String? = null,
+    val currentMusicXmlPath: String? = null,
     val importDate: Long,
     val lastOpenedDate: Long? = null,
     val pageCount: Int,
@@ -33,4 +35,7 @@ data class Score(
     val lastViewedZoom: Float = 1f,
     val practiceProgress: Float = 0f,
     val notes: String? = null
-)
+) {
+    /** True if this score has at least one recognized OMR version available. */
+    val hasOmrResult: Boolean get() = !currentMusicXmlPath.isNullOrBlank()
+}

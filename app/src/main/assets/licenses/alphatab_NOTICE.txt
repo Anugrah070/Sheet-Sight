@@ -1,0 +1,11 @@
+alphaTab 1.6.1
+
+alphaTab is licensed under the Mozilla Public License 2.0 (MPL-2.0).
+The alphaTab source code is available from its official project repository:
+https://github.com/CoderLine/alphaTab
+
+The MPL-2.0 license text is available at:
+https://www.mozilla.org/MPL/2.0/
+
+Sheet Sight uses the unmodified published net.alphatab:alphaTab:1.6.1
+library and a separate application-owned Android host for its rendered output.

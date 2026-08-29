@@ -1,6 +1,8 @@
 package com.sheetsight.app.di
 
 import com.sheetsight.app.data.repository.ScoreRepositoryImpl
+import com.sheetsight.app.data.local.AppMusicXmlArtifactStore
+import com.sheetsight.app.data.local.MusicXmlArtifactStore
 import com.sheetsight.app.domain.repository.ScoreRepository
 import dagger.Binds
 import dagger.Module
@@ -21,8 +23,12 @@ import dagger.hilt.components.SingletonComponent
 abstract class RepositoryModule {
 
     @Binds
+    abstract fun bindMusicXmlArtifactStore(
+        impl: AppMusicXmlArtifactStore
+    ): MusicXmlArtifactStore
+
+    @Binds
     abstract fun bindScoreRepository(
         impl: ScoreRepositoryImpl
     ): ScoreRepository
 }
-

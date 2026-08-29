@@ -2,9 +2,7 @@ package com.sheetsight.app.domain.practice
 
 import com.sheetsight.app.data.audio.AcousticNoteEventTracker
 import com.sheetsight.app.data.audio.DurationClassifier
-import com.sheetsight.app.data.audio.NoteOnsetEvidence
 import com.sheetsight.app.data.audio.PitchFrame
-import com.sheetsight.app.data.audio.StablePitchEvent
 import com.sheetsight.app.data.audio.ReleaseCalibrationProfile
 import com.sheetsight.app.data.audio.ReleaseCalibrationQuality
 import org.junit.Assert.assertEquals

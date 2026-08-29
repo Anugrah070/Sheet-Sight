@@ -15,6 +15,9 @@ interface ScoreRepository {
     /** All scores, most recently imported first. */
     fun getAllScores(): Flow<List<Score>>
 
+    /** Scores whose authoritative current MusicXML is present, readable, and non-empty. */
+    fun observeEditorScores(): Flow<List<Score>>
+
     /** Scores the user has flagged as favorites. */
     fun getFavoriteScores(): Flow<List<Score>>
 
@@ -40,6 +43,30 @@ interface ScoreRepository {
 
     suspend fun updatePracticeProgress(id: Long, progress: Float)
 
-    /** Called once OMR/editing has produced a MusicXML file for this score. */
-    suspend fun setMusicXmlPath(id: Long, path: String)
+    /** Records an OMR output as current while preserving the first output as original. */
+    suspend fun setGeneratedMusicXmlPath(id: Long, path: String)
+
+    /** Future save seam: changes only the authoritative current MusicXML path. */
+    suspend fun setCurrentMusicXmlPath(id: Long, path: String)
+
+    /** Writes a new version and redirects current only if [expectedCurrentPath] is still authoritative. */
+    suspend fun persistEditedMusicXmlVersion(
+        id: Long,
+        expectedCurrentPath: String,
+        musicXmlBytes: ByteArray
+    ): MusicXmlVersionPersistenceResult =
+        MusicXmlVersionPersistenceResult.Failure("MusicXML version persistence is not supported.")
+
+    /** Removes only the generated/current artifact while preserving the Library source. */
+    suspend fun deleteGeneratedScore(id: Long): GeneratedScoreDeletionResult
+}
+
+sealed interface MusicXmlVersionPersistenceResult {
+    data class Success(val currentMusicXmlPath: String) : MusicXmlVersionPersistenceResult
+    data class Failure(val message: String) : MusicXmlVersionPersistenceResult
+}
+
+sealed interface GeneratedScoreDeletionResult {
+    data class Success(val fileWasAlreadyMissing: Boolean) : GeneratedScoreDeletionResult
+    data class Failure(val message: String) : GeneratedScoreDeletionResult
 }

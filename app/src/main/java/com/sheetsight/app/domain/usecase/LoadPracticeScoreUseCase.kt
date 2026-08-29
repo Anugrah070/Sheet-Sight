@@ -19,7 +19,8 @@ import kotlinx.coroutines.withContext
 sealed interface PracticeScoreLoadOutcome {
     data class Success(
         val sequence: PracticeSequence,
-        val notation: NotationDocument
+        val notation: NotationDocument,
+        val musicXml: String
     ) : PracticeScoreLoadOutcome
     data class Failure(val message: String) : PracticeScoreLoadOutcome
 }
@@ -43,7 +44,7 @@ class LoadPracticeScoreUseCase @Inject constructor(
             val bytes = resolver.openInputStream(uri)?.use(::readLimited)
                 ?: throw IOException("The selected MusicXML file could not be opened.")
             val loaded = loader.load(fileName, bytes)
-            PracticeScoreLoadOutcome.Success(loaded.sequence, loaded.notation)
+            PracticeScoreLoadOutcome.Success(loaded.sequence, loaded.notation, loaded.musicXml)
         } catch (unsupported: UnsupportedMusicXmlException) {
             PracticeScoreLoadOutcome.Failure(unsupported.message ?: "This MusicXML score is not supported.")
         } catch (security: SecurityException) {

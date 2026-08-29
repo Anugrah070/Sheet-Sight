@@ -56,6 +56,43 @@ class MeasureConstructorTest {
     }
 
     @Test
+    fun `staff-relative x tolerance clusters fragmented grand-staff evidence`() {
+        val measures = MeasureConstructor.construct(
+            0,
+            200,
+            listOf(barline(99), barline(102)),
+            xTolerance = 4.0
+        )
+
+        assertEquals(listOf(0 to 99, 99 to 200), measures.map { it.left to it.right })
+    }
+
+    @Test
+    fun `barline inside staff-relative endpoint tolerance owns the edge without a sliver measure`() {
+        val measures = MeasureConstructor.construct(
+            10,
+            110,
+            listOf(barline(107)),
+            xTolerance = 4.0
+        )
+
+        assertEquals(listOf(10 to 110), measures.map { it.left to it.right })
+        assertEquals(MeasureBoundaryEvidence.DETECTED_BARLINE, measures.single().rightEvidence)
+    }
+
+    @Test
+    fun `barline outside endpoint tolerance preserves a genuine trailing interval`() {
+        val measures = MeasureConstructor.construct(
+            10,
+            110,
+            listOf(barline(105)),
+            xTolerance = 4.0
+        )
+
+        assertEquals(listOf(10 to 105, 105 to 110), measures.map { it.left to it.right })
+    }
+
+    @Test
     fun `leading interval is preserved as pickup measure`() {
         val measures = MeasureConstructor.construct(20, 220, listOf(barline(70), barline(170)))
 

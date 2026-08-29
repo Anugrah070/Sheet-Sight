@@ -2,7 +2,8 @@ package com.sheetsight.app.data.omr.semantic
 
 data class DetectedMeasureBarline(
     val x: Int,
-    val source: SemanticSourceRef
+    val source: SemanticSourceRef,
+    val confidence: Double = 1.0
 )
 
 /** Builds only evidence-backed intervals: staff extents plus detected barlines. */
@@ -10,24 +11,33 @@ object MeasureConstructor {
     fun construct(
         systemLeft: Int,
         systemRight: Int,
-        barlines: List<DetectedMeasureBarline>
+        barlines: List<DetectedMeasureBarline>,
+        /** Local staff-space-relative tolerance supplied by the system assembler. */
+        xTolerance: Double = 0.0
     ): List<SemanticMeasureBoundary> {
         if (systemLeft >= systemRight) return emptyList()
+        require(xTolerance >= 0.0)
 
         val ordered = barlines
             .filter { it.x in systemLeft..systemRight }
             .sortedWith(compareBy<DetectedMeasureBarline> { it.x }.thenBy { it.source.id })
-            .fold(mutableListOf<DetectedMeasureBarline>()) { accepted, candidate ->
-                val previous = accepted.lastOrNull()
-                if (previous == null || !samePhysicalBarline(previous, candidate)) {
-                    accepted += candidate
+        val clustered = clusterByX(ordered, xTolerance)
+        val edgeNormalized = clusterByX(
+            clustered.map { barline ->
+                when {
+                    kotlin.math.abs(barline.x - systemLeft) <= xTolerance ->
+                        barline.copy(x = systemLeft)
+                    kotlin.math.abs(barline.x - systemRight) <= xTolerance ->
+                        barline.copy(x = systemRight)
+                    else -> barline
                 }
-                accepted
-            }
+            }.sortedWith(compareBy<DetectedMeasureBarline> { it.x }.thenBy { it.source.id }),
+            0.0
+        )
 
-        val interior = ordered.filter { it.x > systemLeft && it.x < systemRight }
-        val atLeft = ordered.lastOrNull { it.x == systemLeft }
-        val atRight = ordered.firstOrNull { it.x == systemRight }
+        val interior = edgeNormalized.filter { it.x > systemLeft && it.x < systemRight }
+        val atLeft = edgeNormalized.lastOrNull { it.x == systemLeft }
+        val atRight = edgeNormalized.firstOrNull { it.x == systemRight }
         val points = buildList {
             add(systemLeft to atLeft)
             interior.forEach { add(it.x to it) }
@@ -50,6 +60,39 @@ object MeasureConstructor {
                 },
                 leftSource = left.second?.source,
                 rightSource = right.second?.source
+            )
+        }
+    }
+
+    /**
+     * Consolidates fragmented/aligned treble+bass evidence without using a
+     * raw-pixel constant. The strongest source owns provenance; ties are
+     * deterministic and keep the left-most detection.
+     */
+    private fun clusterByX(
+        ordered: List<DetectedMeasureBarline>,
+        xTolerance: Double
+    ): List<DetectedMeasureBarline> {
+        if (ordered.isEmpty()) return emptyList()
+        val clusters = mutableListOf<MutableList<DetectedMeasureBarline>>()
+        ordered.forEach { candidate ->
+            val current = clusters.lastOrNull()
+            val anchor = current?.map { it.x }?.average()
+            if (
+                current == null ||
+                (kotlin.math.abs(candidate.x - requireNotNull(anchor)) > xTolerance &&
+                    current.none { samePhysicalBarline(it, candidate) })
+            ) {
+                clusters += mutableListOf(candidate)
+            } else {
+                current += candidate
+            }
+        }
+        return clusters.map { cluster ->
+            cluster.maxWith(
+                compareBy<DetectedMeasureBarline> { it.confidence }
+                    .thenBy { -it.x }
+                    .thenByDescending { it.source.id }
             )
         }
     }

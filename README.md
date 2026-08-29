@@ -42,8 +42,8 @@ ONNX Runtime Mobile, no network dependency for any core feature.
 - **Import pipeline**: `ImportScoreUseCase` validates a picked PDF/JPG/PNG,
   copies it into app-private storage (`ScoreFileStorage`, under
   `filesDir/scores/`), determines page count for PDFs, and persists a new
-  `Score` row. **It does not run OMR** — `Score.musicXmlPath` is left
-  `null` by this use case.
+  `Score` row. **It does not run OMR** — `Score.originalMusicXmlPath` and
+  `Score.currentMusicXmlPath` are left `null` by this use case.
 - **Preview screen**: renders PDF pages via `android.graphics.pdf.PdfRenderer`
   with pinch-zoom/pan and can run the current page through the complete
   recognition route, persist the generated MusicXML path, and open it in
@@ -53,7 +53,7 @@ ONNX Runtime Mobile, no network dependency for any core feature.
 - **OMR pipeline integration**: `DefaultScoreOmrProcessor` runs imported
   image/PDF pages through the complete recognition and MusicXML-export route.
   `OnnxOmrEngine` separately exposes the older decode-through-staff-grid seam.
-- **OMR pipeline components (part of a 311-test passing JVM suite)**:
+- **OMR pipeline components (part of a 366-test passing JVM suite)**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
@@ -89,10 +89,22 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   - **MusicXML output route**: `DefaultScoreOmrProcessor` adapts image/PDF
     pages to the complete smoke-runner pipeline through semantic construction
     and MusicXML export, then persists the generated file for the app UI.
-- **Editor notation viewer**: generated MusicXML is hardened-parsed, laid out,
-  and rendered as real notation with paging/system geometry and zoom controls.
-  Interactive notation editing is not implemented yet.
-- **Practice Mode (Phases 7.0-7.4)**: imports uncompressed MusicXML, builds a
+- **Native notation viewers**: generated MusicXML is hardened-parsed, then the
+  Editor engraves it with alphaTab's native Android Canvas/Skia renderer. A
+  bundled Compose/Bravura renderer takes over automatically if alphaTab cannot
+  import or render a score, so notation never depends on WebView/JavaScript.
+  Practice uses the same full alphaTab engraver for source-faithful staves,
+  lyrics, beams, spacing, and a native score-following cursor; the Compose
+  renderer remains the deterministic fallback when source MusicXML is not
+  available. The Editor is landscape-first and preserves zoom/reading
+  position. Phase 8.0-8.5 adds score-scoped structural note identities,
+  exact alphaTab note-head selection with color-only feedback, and instant
+  Note Up/Note Down movement through adjacent natural letter names for one
+  safely selected pitched MusicXML note. Edits remove source accidentals,
+  validate optimistically before persistence, replace only the affected retained
+  score chunk, and atomically promote a new app-managed current artifact while
+  preserving both the original artifact and the renderer session.
+- **Practice Mode (Phases 7.0-7.5)**: imports uncompressed MusicXML, builds a
   deterministic `PracticeSequence`, captures one local microphone stream,
   performs monophonic piano YIN pitch detection, stable-note/onset filtering,
   correct/wrong matching, repeated-note re-arm protection, notation
@@ -108,20 +120,48 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   accent/strong-accent, staccatissimo, and fermata are preserved explicitly.
   Tie chains retain their source notes for rendering while using combined
   sounding duration and no-onset continuation semantics in Practice Mode.
+- **Phase 7.5 developer acoustic validation harness**: a Settings developer
+  tool runs the same microphone, YIN, stable-onset, PracticeClock, progression,
+  and release pipeline against a repeatable physical-piano matrix. A developer
+  manually labels the intended action and phone placement; the harness retains
+  only bounded derived per-note diagnostics and never PCM. Low/mid/high,
+  sustain, legato, repeated notes, ties, rests, supported articulations, attack
+  variation, phone placement, and GOOD/MODERATE/POOR/no-profile policy checks
+  are represented. Reaching the release observation limit is conservatively
+  `SustainAmbiguous`, because persistent sound alone cannot distinguish a held
+  key from pedal/resonance.
+- **Phase 7.5B guided real-piano recorder**: a separate Settings developer tool
+  shows a live microphone-level bar and detected pitch, walks through either a
+  seven-case pilot or a 69-take low/mid/high, dynamics, wrong-note, octave,
+  repeat, legato, residual, silence/noise, and placement matrix, and records PCM
+  only after an explicit per-take action. A user-selected ZIP export contains
+  individual WAVs, Android audio/device provenance, and an intentionally
+  unverified manifest for later human review. Ordinary Practice Mode still
+  persists no microphone PCM.
+- **Phase 7.5C dataset-ingest hardening**: a debug-only bundle validator rejects
+  truncated ZIPs, escaping/duplicate paths, manifest/WAV mismatches, duplicate IDs,
+  incomplete provenance, clipped/truncated WAVs, and raw exports that claim manual
+  verification. Guided exports now retain routed-input-device and AudioRecord-buffer
+  provenance. The first attached pilot remains outside metrics pending audible review;
+  the attached full-matrix export was truncated. Production recognition is unchanged.
 
 ### In progress
 - **Production integration**: semantic construction is available as a
   tested component and developer smoke stage, but `OnnxOmrEngine` still
   stops at its documented later-phase integration seam.
-- **Testing**: 311 JVM tests pass. The Phase 4 classifier parity
+- **Testing**: 366 JVM tests pass. The Phase 4 classifier parity
   instrumented test passes on the connected OnePlus device.
-- **Practice acoustic tuning**: deterministic calibration/profile and tracker
-  behavior are JVM-tested; Phase 7.4 has not yet been calibrated on a physical piano and
-  sustain pedal in the current implementation session.
+- **Practice acoustic validation**: an initial OnePlus/physical-piano matrix
+  exposed weak normal-distance edge-register attacks, intermittent legato
+  transitions, and misleading PASS labels under a POOR calibration profile.
+  Register/noise-aware onset gating and overlap-tolerant legato stability are
+  implemented; a repeat device matrix is still the tuning gate.
 
 ### Planned / not yet implemented
-- Interactive notation editing remains planned; the current Editor is a
-  read-only MusicXML notation viewer.
+- Editor duration changes, insertion/deletion, rest/chord mutation, Save UI,
+  Undo/Redo, and broader notation editing are not implemented. Phase 8.5 is
+  intentionally limited to adjacent natural-note changes on one unambiguously
+  selected note.
 - Analysis tab (key/chord/cadence/interval/motif detection, overlays) —
   placeholder screen only.
 - Practice scoring/grades, persistent analytics/history, dynamics, pedal
@@ -278,7 +318,7 @@ golden test passes on a OnePlus CPH2707 (Android 16, ARM64).
 | `di` | Hilt modules: `DatabaseModule`, `DispatcherModule` (qualified `IoDispatcher`/`DefaultDispatcher`/`MainDispatcher`), `OmrModule` (`OrtEnvironment` + `OmrEngine` binding), `RepositoryModule`. |
 | `data/local`, `data/repository`, `domain` | Room persistence, file storage, and the `Score`/`ScoreRepository` domain layer — unrelated to OMR, already functional. |
 | `data/audio`, `data/practice`, `domain/practice` | Single-stream microphone/YIN analysis, stable onsets, PracticeSequence construction, clock/timing/progression, and bounded informational acoustic-duration tracking. |
-| `ui/*` | Functional Library, Preview, read-only Editor notation viewer, and Practice UI; Analysis remains a placeholder. |
+| `ui/*` | Functional Library, Preview, Phase 8.5 exact-note selection/instant natural-note editing, and Practice UI; Analysis remains a placeholder. |
 
 Design pattern used throughout the OMR packages: most classes are plain
 `object`s (stateless, pure functions) or `@Inject constructor` singletons
@@ -357,9 +397,9 @@ barline detection → track voting → assignment → validation
 [MusicXML export via complete smoke-runner route] ✅ implemented
 │
 ▼
-Score.musicXmlPath persisted → Editor notation viewer
+Score.originalMusicXmlPath/currentMusicXmlPath persisted → Editor loads current by score ID
 
-Independent MusicXML import → Practice Phases 7.0-7.4
+Independent MusicXML import → Practice Phases 7.0-7.5
 (microphone pitch/timing progression + informational acoustic duration)
 
 ---
@@ -373,22 +413,25 @@ In dependency order:
 2. **Unify production entry points** — `DefaultScoreOmrProcessor` already
    runs the complete recognition/export route, while `OnnxOmrEngine.recognize()`
    still ends at the older staff-grid integration seam.
-3. **Verify Phase 7.4 calibration acoustically** on real pianos/rooms, especially
-   release debounce, low-register decay, legato, and sustain resonance.
+3. **Repeat the Phase 7.5 acoustic matrix on real pianos/rooms** after the first
+   device-informed onset tuning, especially normal-distance low/high registers,
+   legato, release debounce, sustain resonance, attack variation, and placement.
 
 ---
 
 ## 8. Testing
 
-The codebase is verified with **311 passing JVM unit tests**
+The codebase is verified with **366 passing JVM unit tests**
 (`app/src/test/...`). These verify the mathematical correctness of
 preprocessing, inference merging, mask extraction, full dewarping logic,
 staff identification, track voting, final grid validation, and typed
 classified-rest rhythm integration, plus MusicXML, Editor, Preview, and
-  Practice behavior. The focused Practice/audio subset contains 79 tests.
+  Practice behavior. The focused Practice/audio subset contains 94 tests.
 
 | Test file | Covers |
 |---|---|
+| `data/audio/AcousticValidationSessionTest` | Bounded diagnostics, matrix/register coverage, dropout tolerance, sustain ambiguity, legato progression, repeated-note re-arm, tie continuation, and POOR-profile conservatism. |
+| `data/audio/AcousticNoteEventTrackerTest` | Acoustic activity, release debounce, residual/sustain ambiguity, pause exclusion, bounded summaries, and observation-limit conservatism. |
 | `preprocessing/CanonicalImageResizerTest` | Target-size computation. |
 | `preprocessing/SlidingWindowTilerTest` | Tile-origin computation. |
 | `inference/ClassMaskExtractorTest` | Argmax correctness and validation. |
@@ -436,8 +479,9 @@ chord, rest, unresolved-event, and validation-warning counts. It retains no
 additional full-resolution debug image.
 
 Remaining validation gaps are primarily Android/device-specific: real-page
-OpenCV/ONNX coverage beyond the existing classifier golden, and physical-piano
-acoustic calibration for Practice release/sustain behavior.
+OpenCV/ONNX coverage beyond the existing classifier golden, and a controlled
+repeat of the physical-piano matrix after the first device-informed onset and
+legato tuning pass.
 
 ---
 
@@ -449,7 +493,7 @@ Confirmed from the project's own Gradle configuration:
 - **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — **311 tests passing**.
+- **Tests**: `./gradlew testDebugUnitTest` — **366 tests passing**.
 - **Model assets**: the two segmentation models and four SVM ONNX exports
   are already under `app/src/main/assets/models/`.
 

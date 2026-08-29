@@ -21,6 +21,10 @@ class TileInferenceRunner @Inject constructor(
     private val tensorFactory: OmrTensorFactory
 ) {
 
+    /** Returns metadata re-read from the loaded graph for diagnostics. */
+    fun verifiedContract(spec: OmrModelSpec): OmrModelContract =
+        OmrModelContractVerifier.verify(sessionProvider.sessionFor(spec), spec)
+
     /**
      * Streams [spec]'s sliding-window tiles over [source] in fixed-size
      * batches, running inference on each batch and immediately folding
@@ -33,8 +37,10 @@ class TileInferenceRunner @Inject constructor(
         canonicalWidth: Int,
         canonicalHeight: Int,
         stepSize: Int = spec.windowSize,
+        batchSize: Int = OmrRuntimeTuning.inferenceBatchSize,
         onProgress: ((current: Int, total: Int) -> Unit)? = null
     ): OmrPredictionMap {
+        require(batchSize > 0)
         val paddedWidth = maxOf(source.width(), spec.windowSize)
         val paddedHeight = maxOf(source.height(), spec.windowSize)
         val width = maxOf(canonicalWidth, paddedWidth)
@@ -55,7 +61,7 @@ class TileInferenceRunner @Inject constructor(
             source = source,
             windowSize = spec.windowSize,
             stepSize = stepSize,
-            batchSize = DEFAULT_BATCH_SIZE
+            batchSize = batchSize
         )) {
             try {
                 val tensorStart = SystemClock.elapsedRealtime()
@@ -87,7 +93,7 @@ class TileInferenceRunner @Inject constructor(
         }
 
         val totalTime = SystemClock.elapsedRealtime() - totalStart
-        Log.i("OmrPerf", "[PERF] Model: ${spec.name} | Tiles: $totalTiles | Total: ${totalTime}ms " +
+        Log.i("OmrPerf", "[PERF] Model: ${spec.name} | Tiles: $totalTiles | Batch: $batchSize | Total: ${totalTime}ms " +
                 "(Tensor: ${totalTensorMs}ms, Run: ${totalRunMs}ms, Accum: ${totalAccumMs}ms)")
 
         return accumulator.finish()

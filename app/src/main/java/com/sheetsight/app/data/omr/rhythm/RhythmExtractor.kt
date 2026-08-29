@@ -9,6 +9,7 @@ import com.sheetsight.app.data.omr.notehead.NoteheadExtractor
 import com.sheetsight.app.data.omr.notehead.NoteheadType
 import com.sheetsight.app.data.omr.symbol.ClassifiedRestCandidate
 import com.sheetsight.app.data.omr.symbol.RestSymbolLabel
+import com.sheetsight.app.data.omr.symbol.RestWholeHalfPlacement
 import com.sheetsight.app.data.omr.track.BoundingBox
 import com.sheetsight.app.data.omr.track.ConnectedComponentBoxExtractor
 import kotlin.math.abs
@@ -258,7 +259,7 @@ object RhythmExtractor {
     fun resolveDurations(candidates: List<RhythmCandidate>): List<RhythmCandidate> =
         candidates.sortedBy { it.noteGroupId }
 
-    private data class StaffGeometry(
+    internal data class StaffGeometry(
         val xCenter: Double,
         val yCenter: Double,
         val yUpper: Double,
@@ -1130,7 +1131,7 @@ object RhythmExtractor {
         rest: ClassifiedRestCandidate
     ): RestRhythmResult {
         val reasons = linkedSetOf<RhythmUnresolvedReason>()
-        val duration = restDuration(rest.label, reasons)
+        val duration = restDuration(rest, reasons)
         val dotCount = if (rest.hasAugmentationDot) 1 else 0
         val dotted = durationValue(duration, dotCount)
         val state = when {
@@ -1150,21 +1151,40 @@ object RhythmExtractor {
     }
 
     private fun restDuration(
-        label: RestSymbolLabel,
+        rest: ClassifiedRestCandidate,
         reasons: MutableSet<RhythmUnresolvedReason>
-    ): RhythmDuration? = when (label) {
+    ): RhythmDuration? {
+        if (
+            rest.label != RestSymbolLabel.WHOLE_OR_HALF &&
+            rest.wholeHalfPlacement in setOf(
+                RestWholeHalfPlacement.WHOLE,
+                RestWholeHalfPlacement.HALF
+            )
+        ) {
+            reasons += RhythmUnresolvedReason.REST_CLASSIFIER_GEOMETRY_CONFLICT
+            return null
+        }
+        return when (rest.label) {
         RestSymbolLabel.WHOLE_OR_HALF -> {
-            reasons += RhythmUnresolvedReason.REST_WHOLE_HALF_AMBIGUOUS
-            null
+            when (rest.wholeHalfPlacement) {
+                RestWholeHalfPlacement.WHOLE -> RhythmDuration.WHOLE
+                RestWholeHalfPlacement.HALF -> RhythmDuration.HALF
+                RestWholeHalfPlacement.AMBIGUOUS,
+                RestWholeHalfPlacement.NOT_APPLICABLE -> {
+                    reasons += RhythmUnresolvedReason.REST_WHOLE_HALF_AMBIGUOUS
+                    null
+                }
+            }
         }
         RestSymbolLabel.QUARTER -> RhythmDuration.QUARTER
         RestSymbolLabel.EIGHTH -> RhythmDuration.EIGHTH
         RestSymbolLabel.SIXTEENTH -> RhythmDuration.SIXTEENTH
         RestSymbolLabel.THIRTY_SECOND -> RhythmDuration.THIRTY_SECOND
         RestSymbolLabel.SIXTY_FOURTH -> RhythmDuration.SIXTY_FOURTH
+        }
     }
 
-    private fun unitSizeAt(
+    internal fun unitSizeAt(
         geometry: List<StaffGeometry>,
         x: Int,
         y: Int
@@ -1211,8 +1231,13 @@ object RhythmExtractor {
         val distance2 = abs(y - second.yCenter)
         val total = distance1 + distance2
         if (total == 0.0) return first.unitSize
-        val weight1 = distance1 / total
-        val weight2 = distance2 / total
+        // Inverse-distance interpolation: the nearer staff must contribute
+        // more of its unit size. This intentionally mirrors
+        // StaffGeometryResolver.unitSizeAt; using each staff's own distance
+        // as its weight reverses the interpolation and makes beam/dot scan
+        // geometry drift toward the farther staff.
+        val weight1 = distance2 / total
+        val weight2 = distance1 / total
         return weight1 * first.unitSize + weight2 * second.unitSize
     }
 

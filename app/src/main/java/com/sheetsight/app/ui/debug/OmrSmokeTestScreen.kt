@@ -57,6 +57,7 @@ import com.sheetsight.app.domain.model.Score
 import java.io.File
 
 private const val MUSICXML_MIME_TYPE = "application/vnd.recordare.musicxml+xml"
+private const val ZIP_MIME_TYPE = "application/zip"
 
 /**
  * Developer-only smoke test screen: pick one imported score, pick a stage
@@ -78,6 +79,11 @@ fun OmrSmokeTestScreen(
         contract = ActivityResultContracts.CreateDocument(MUSICXML_MIME_TYPE)
     ) { uri ->
         if (uri != null) viewModel.onPersistentMusicXmlTargetSelected(uri)
+    }
+    val persistentDebugBundleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(ZIP_MIME_TYPE)
+    ) { uri ->
+        if (uri != null) viewModel.onPersistentDebugBundleTargetSelected(uri)
     }
 
     Scaffold(
@@ -187,6 +193,17 @@ fun OmrSmokeTestScreen(
                             )
                         }
                     }
+                    diagnostic.debugBundlePath?.let { bundlePath ->
+                        item {
+                            PersistentDebugBundleExportCard(
+                                fileName = File(bundlePath).name,
+                                isSaving = uiState.isSavingDebugBundle,
+                                message = uiState.debugBundleSaveMessage,
+                                error = uiState.debugBundleSaveError,
+                                onSave = { persistentDebugBundleLauncher.launch(File(bundlePath).name) }
+                            )
+                        }
+                    }
                     items(diagnostic.stageDurations) { timing ->
                         val mem = timing.memoryAfter
                         Text(
@@ -270,6 +287,34 @@ private fun PersistentMusicXmlExportCard(
             error?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+
+@Composable
+private fun PersistentDebugBundleExportCard(
+    fileName: String,
+    isSaving: Boolean,
+    message: String?,
+    error: String?,
+    onSave: () -> Unit
+) {
+    Card {
+        Column(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Portable OMR debug bundle", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "$fileName contains stage previews, timings, memory, detections, and MusicXML. " +
+                    "Save it before clearing app cache.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(onClick = onSave, enabled = !isSaving) {
+                Text(if (isSaving) "Saving…" else "Save debug ZIP")
+            }
+            message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }
 }

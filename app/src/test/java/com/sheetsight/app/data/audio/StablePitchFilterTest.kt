@@ -1,7 +1,9 @@
 package com.sheetsight.app.data.audio
 
 import com.sheetsight.app.domain.practice.DetectedPitch
+import com.sheetsight.app.domain.practice.NoteOnsetEvidence
 import com.sheetsight.app.domain.practice.PracticePitch
+import com.sheetsight.app.domain.practice.StablePitchEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -60,8 +62,35 @@ class StablePitchFilterTest {
         assertNull(filter.process(frame('C', 300, level = 0.078)))
     }
 
-    private fun frame(step: Char, timestamp: Long, level: Double = 0.1): PitchFrame {
-        val pitch = DetectedPitch(261.63, PracticePitch(step, 0, 4), 0.0, 0.95, timestamp, level)
+    @Test
+    fun `brief old-note evidence does not erase a legato transition candidate`() {
+        val filter = StablePitchFilter()
+        filter.process(frame('C', 0, level = 0.01))
+        filter.process(frame('C', 50, level = 0.01))
+
+        assertNull(filter.process(frame('E', 100, level = 0.006)))
+        assertNull(filter.process(frame('C', 150, level = 0.006)))
+        val transition = filter.process(frame('E', 200, level = 0.006))
+
+        assertEquals(NoteOnsetEvidence.PitchTransition, (transition as StablePitchEvent.Stable).onsetEvidence)
+        assertEquals(64, transition.pitch.nearestPitch.midiNumber)
+    }
+
+    @Test
+    fun `quiet edge-register attacks pass the register-aware gate after stable evidence`() {
+        val low = StablePitchFilter()
+        assertNull(low.process(frame('C', 0, level = 0.0029, octave = 2)))
+        val lowOnset = low.process(frame('C', 50, level = 0.0029, octave = 2))
+        assertEquals(36, (lowOnset as StablePitchEvent.Stable).pitch.nearestPitch.midiNumber)
+
+        val high = StablePitchFilter()
+        assertNull(high.process(frame('E', 0, level = 0.0029, octave = 6)))
+        val highOnset = high.process(frame('E', 50, level = 0.0029, octave = 6))
+        assertEquals(88, (highOnset as StablePitchEvent.Stable).pitch.nearestPitch.midiNumber)
+    }
+
+    private fun frame(step: Char, timestamp: Long, level: Double = 0.1, octave: Int = 4): PitchFrame {
+        val pitch = DetectedPitch(261.63, PracticePitch(step, 0, octave), 0.0, 0.95, timestamp, level)
         return PitchFrame(pitch, level, timestamp)
     }
 }

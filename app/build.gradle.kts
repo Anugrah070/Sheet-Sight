@@ -1,19 +1,30 @@
+import com.android.build.api.instrumentation.FramesComputationMode
+import com.android.build.api.instrumentation.InstrumentationScope
+import com.sheetsight.build.AlphaTabForceNoneClassVisitorFactory
+
 plugins {
-    alias(libs.plugins.android.application)
+    id("com.android.application")
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
 
+val codexPracticeBuild = providers.gradleProperty("codexPracticeBuild").orNull == "true"
+
 android {
     namespace = "com.sheetsight.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.sheetsight.app"
-        // minSdk 25 = Android 7.1 (Nougat), satisfying "above Nougat" requirement
-        minSdk = 25
+        applicationId = if (codexPracticeBuild) {
+            "com.sheetsight.app.codexpractice"
+        } else {
+            "com.sheetsight.app"
+        }
+        // alphaTab's native Canvas/Skia renderer requires Android 8.0+.
+        // This remains above the project's original Nougat support floor.
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -51,6 +62,18 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.instrumentation.transformClassesWith(
+            AlphaTabForceNoneClassVisitorFactory::class.java,
+            InstrumentationScope.ALL
+        ) { }
+        variant.instrumentation.setAsmFramesComputationMode(
+            FramesComputationMode.COMPUTE_FRAMES_FOR_INSTRUMENTED_METHODS
+        )
+    }
+}
+
 dependencies {
     // Core / Lifecycle
     implementation(libs.androidx.core.ktx)
@@ -67,6 +90,9 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.coil.compose)
+    // Native Android MusicXML engraving. This replaces the WebView-based OSMD
+    // path and uses alphaTab's Android Canvas/Skia renderer entirely on-device.
+    implementation(libs.alphatab)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 

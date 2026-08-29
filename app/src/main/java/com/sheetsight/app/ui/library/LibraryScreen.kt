@@ -81,7 +81,8 @@ private val FavoriteGold = Color(0xFFFFD700)
 fun LibraryScreen(
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
-    onOpenScore: (Long) -> Unit = {}
+    onOpenScore: (Score) -> Unit = {},
+    onOpenEditor: (Score) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -194,8 +195,9 @@ fun LibraryScreen(
                         viewMode = uiState.viewMode,
                         onOpen = { score ->
                             viewModel.onScoreOpened(score)
-                            onOpenScore(score.id)
+                            onOpenScore(score)
                         },
+                        onOpenEditor = onOpenEditor,
                         onToggleFavorite = viewModel::onToggleFavorite,
                         onRename = viewModel::onRenameRequested,
                         onDelete = viewModel::onDeleteRequested,
@@ -275,6 +277,7 @@ private fun LibraryContent(
     scores: List<Score>,
     viewMode: LibraryViewMode,
     onOpen: (Score) -> Unit,
+    onOpenEditor: (Score) -> Unit,
     onToggleFavorite: (Score) -> Unit,
     onRename: (Score) -> Unit,
     onDelete: (Score) -> Unit,
@@ -286,6 +289,7 @@ private fun LibraryContent(
                 ScoreListItem(
                     score = score,
                     onOpen = { onOpen(score) },
+                    onOpenEditor = { onOpenEditor(score) },
                     onToggleFavorite = { onToggleFavorite(score) },
                     onRename = { onRename(score) },
                     onDelete = { onDelete(score) }
@@ -304,6 +308,7 @@ private fun LibraryContent(
                 ScoreGridItem(
                     score = score,
                     onOpen = { onOpen(score) },
+                    onOpenEditor = { onOpenEditor(score) },
                     onToggleFavorite = { onToggleFavorite(score) },
                     onRename = { onRename(score) },
                     onDelete = { onDelete(score) }
@@ -351,12 +356,12 @@ private fun FavoriteButton(
 
 @Composable
 private fun ScoreActionsButton(
-    scoreTitle: String,
+    score: Score,
     menuExpanded: Boolean,
-    isFavorite: Boolean,
     onShowMenu: () -> Unit,
     onDismissMenu: () -> Unit,
     onOpen: () -> Unit,
+    onOpenEditor: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -365,14 +370,15 @@ private fun ScoreActionsButton(
         IconButton(onClick = onShowMenu) {
             Icon(
                 Icons.Filled.MoreVert,
-                contentDescription = stringResource(R.string.library_item_actions_cd, scoreTitle)
+                contentDescription = stringResource(R.string.library_item_actions_cd, score.title)
             )
         }
         ScoreActionsMenu(
             expanded = menuExpanded,
-            isFavorite = isFavorite,
+            score = score,
             onDismiss = onDismissMenu,
             onOpen = onOpen,
+            onOpenEditor = onOpenEditor,
             onToggleFavorite = onToggleFavorite,
             onRename = onRename,
             onDelete = onDelete
@@ -384,6 +390,7 @@ private fun ScoreActionsButton(
 private fun ScoreListItem(
     score: Score,
     onOpen: () -> Unit,
+    onOpenEditor: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -410,12 +417,12 @@ private fun ScoreListItem(
             }
             FavoriteButton(isFavorite = score.isFavorite, onClick = onToggleFavorite)
             ScoreActionsButton(
-                scoreTitle = score.title,
+                score = score,
                 menuExpanded = menuExpanded,
-                isFavorite = score.isFavorite,
                 onShowMenu = onShowMenu,
                 onDismissMenu = onDismissMenu,
                 onOpen = onOpen,
+                onOpenEditor = onOpenEditor,
                 onToggleFavorite = onToggleFavorite,
                 onRename = onRename,
                 onDelete = onDelete
@@ -428,6 +435,7 @@ private fun ScoreListItem(
 private fun ScoreGridItem(
     score: Score,
     onOpen: () -> Unit,
+    onOpenEditor: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -457,12 +465,12 @@ private fun ScoreGridItem(
             ) {
                 FavoriteButton(isFavorite = score.isFavorite, onClick = onToggleFavorite)
                 ScoreActionsButton(
-                    scoreTitle = score.title,
+                    score = score,
                     menuExpanded = menuExpanded,
-                    isFavorite = score.isFavorite,
                     onShowMenu = onShowMenu,
                     onDismissMenu = onDismissMenu,
                     onOpen = onOpen,
+                    onOpenEditor = onOpenEditor,
                     onToggleFavorite = onToggleFavorite,
                     onRename = onRename,
                     onDelete = onDelete
@@ -476,9 +484,10 @@ private fun ScoreGridItem(
 @Composable
 private fun ScoreActionsMenu(
     expanded: Boolean,
-    isFavorite: Boolean,
+    score: Score,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
+    onOpenEditor: () -> Unit,
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -489,19 +498,26 @@ private fun ScoreActionsMenu(
             leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
             onClick = { onDismiss(); onOpen() }
         )
+        if (score.hasOmrResult) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.library_action_open_editor)) },
+                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                onClick = { onDismiss(); onOpenEditor() }
+            )
+        }
         DropdownMenuItem(
             text = {
                 Text(
                     stringResource(
-                        if (isFavorite) R.string.library_action_unfavorite else R.string.library_action_favorite
+                        if (score.isFavorite) R.string.library_action_unfavorite else R.string.library_action_favorite
                     )
                 )
             },
             leadingIcon = {
                 Icon(
-                    imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                    imageVector = if (score.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
                     contentDescription = null,
-                    tint = if (isFavorite) FavoriteGold else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (score.isFavorite) FavoriteGold else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             onClick = { onDismiss(); onToggleFavorite() }

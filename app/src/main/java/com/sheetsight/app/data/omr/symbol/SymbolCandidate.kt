@@ -11,7 +11,9 @@ data class SymbolStaffAssignment(
 /** A geometrically verified barline; oemer has no barline SVM. */
 data class MusicalBarlineCandidate(
     val boundingBox: BoundingBox,
-    val group: Int
+    val group: Int,
+    /** Geometric evidence score in [0, 1]; it is not a model probability. */
+    val confidence: Double = 1.0
 )
 
 /** One trained-SVM clef result. */
@@ -45,7 +47,13 @@ data class ClassifiedRestCandidate(
     val assignment: SymbolStaffAssignment,
     val hasAugmentationDot: Boolean,
     val coarseClassification: SymbolClassification,
-    val refinedClassification: SymbolClassification?
+    val refinedClassification: SymbolClassification?,
+    /** Staff-line placement resolves the classifier's combined whole/half class. */
+    val wholeHalfPlacement: RestWholeHalfPlacement = RestWholeHalfPlacement.NOT_APPLICABLE,
+    /** Uncalibrated winning-vs-runner-up SVM decision-score margin. */
+    val classificationMargin: Float? = null,
+    /** Staff-relative placement confidence, present only for whole/half candidates. */
+    val placementConfidence: Double? = null
 ) {
     init {
         val coarseLabel = validatedLabel(coarseClassification, SvmModelKind.REST)
@@ -90,11 +98,19 @@ data class ClassifiedRestCandidate(
     }
 }
 
+enum class RestWholeHalfPlacement {
+    WHOLE,
+    HALF,
+    AMBIGUOUS,
+    NOT_APPLICABLE
+}
+
 /** Immutable result of oemer-compatible symbol extraction. */
 data class SymbolExtractionResult(
     val barlines: List<MusicalBarlineCandidate>,
     val clefs: List<ClefCandidate>,
     val accidentals: List<AccidentalCandidate>,
     val rests: List<ClassifiedRestCandidate>,
-    val barlineDiagnostics: MusicalBarlineDiagnostics? = null
+    val barlineDiagnostics: MusicalBarlineDiagnostics? = null,
+    val restDiagnostics: RestExtractionDiagnostics? = null
 )

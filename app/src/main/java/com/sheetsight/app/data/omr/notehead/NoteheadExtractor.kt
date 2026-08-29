@@ -5,6 +5,7 @@ import com.sheetsight.app.data.omr.inference.OmrClassMasks
 import com.sheetsight.app.data.omr.track.AssignedStaff
 import com.sheetsight.app.data.omr.track.BoundingBox
 import com.sheetsight.app.data.omr.track.ConnectedComponentBoxExtractor
+import com.sheetsight.app.data.omr.track.StaffGeometryResolver
 import kotlin.math.abs
 import kotlin.math.round
 import kotlin.math.roundToInt
@@ -89,7 +90,11 @@ object NoteheadExtractor {
                 noteheadMask = noteheadMask,
                 width = width,
                 height = height,
-                unitSize = unitSizeAt(box.centerX(), box.centerY(), staffs)
+                unitSize = StaffGeometryResolver.unitSizeAt(
+                    listOf(staffs),
+                    box.centerX(),
+                    box.centerY()
+                )
             )
         }
         val filtered = filterBoxes(splitBoxes, morphed, width, height, staffs)
@@ -124,7 +129,16 @@ object NoteheadExtractor {
             } else {
                 NoteheadType.SOLID
             }
-            val assignment = assignStaff(shifted.centerX(), shifted.centerY(), staffs)
+            val localAssignment = StaffGeometryResolver.assignNote(
+                validatedStaffGrid,
+                shifted.centerX(),
+                shifted.centerY()
+            )
+            val assignment = NoteheadStaffAssignment(
+                track = localAssignment.staff.track,
+                group = localAssignment.staff.group,
+                staffLinePosition = localAssignment.staffLinePosition
+            )
             val stemOnRight = stemSide(
                 shifted,
                 enhancedStemLabels,
@@ -304,7 +318,7 @@ object NoteheadExtractor {
         return boxes.filter { box ->
             val centerX = box.centerX()
             val centerY = box.centerY()
-            val unitSize = unitSizeAt(centerX, centerY, staffs)
+            val unitSize = StaffGeometryResolver.unitSizeAt(listOf(staffs), centerX, centerY)
             if (centerX < minX + CLEF_ZONE_WIDTH_UNIT_RATIO * unitSize || centerX > maxX) {
                 false
             } else if (box.height < unitSize * 0.4 || box.height > unitSize * 5.0) {
@@ -524,101 +538,7 @@ object NoteheadExtractor {
         return stemCenterX > (box.left + box.right) / 2.0
     }
 
-    private fun assignStaff(
-        centerX: Int,
-        centerY: Int,
-        staffs: List<AssignedStaff>
-    ): NoteheadStaffAssignment {
-        val (first, second) = closestStaffs(centerX, centerY, staffs)
-        val master = if (
-            first.staff.yCenter == second.staff.yCenter ||
-            centerY in first.staff.yUpper()..first.staff.yLower()
-        ) {
-            first
-        } else {
-            val upper = if (first.staff.yCenter < second.staff.yCenter) first else second
-            val lower = if (upper === first) second else first
-            if (centerY < (upper.staff.yCenter + lower.staff.yCenter) / 2.0) upper else lower
-        }
-        return NoteheadStaffAssignment(
-            track = master.track,
-            group = master.group,
-            staffLinePosition = staffLinePosition(centerY, master)
-        )
-    }
-
-    private fun staffLinePosition(centerY: Int, assigned: AssignedStaff): Int {
-        val staff = assigned.staff
-        val step = staff.unitSize / 2.0
-        val lineCenters = staff.lines.map { it.yCenter }.reversed()
-        val centers = ArrayList<Double>(11)
-        centers += lineCenters.first() + step
-        for (index in lineCenters.indices) {
-            centers += lineCenters[index]
-            if (index < lineCenters.lastIndex) {
-                centers += (lineCenters[index] + lineCenters[index + 1]) / 2.0
-            }
-        }
-        centers += lineCenters.last() - step
-
-        val closestIndex = centers.indices.minBy { abs(centers[it] - centerY) }
-        return when (closestIndex) {
-            0 -> -pythonRound(abs(centers.first() - centerY) / step)
-            centers.lastIndex ->
-                pythonRound(abs(centers.last() - centerY) / step) + centers.lastIndex
-            else -> closestIndex
-        }
-    }
-
-    private fun unitSizeAt(x: Int, y: Int, staffs: List<AssignedStaff>): Double {
-        val (first, second) = closestStaffs(x, y, staffs)
-        if (first.staff.yCenter == second.staff.yCenter) return first.staff.unitSize
-        if (y in first.staff.yUpper()..first.staff.yLower()) return first.staff.unitSize
-        val distance1 = abs(y - first.staff.yCenter)
-        val distance2 = abs(y - second.staff.yCenter)
-        val weight1 = distance1 / (distance1 + distance2)
-        val weight2 = distance2 / (distance1 + distance2)
-        return weight1 * first.staff.unitSize + weight2 * second.staff.unitSize
-    }
-
-    private fun closestStaffs(
-        x: Int,
-        y: Int,
-        staffs: List<AssignedStaff>
-    ): Pair<AssignedStaff, AssignedStaff> {
-        val sorted = staffs.sortedBy {
-            val dx = x - it.staff.xCenter()
-            val dy = y - it.staff.yCenter
-            sqrt(dx * dx + dy * dy)
-        }
-        if (sorted.size == 1) return sorted[0] to sorted[0]
-        if (sorted.size == 2) return sorted[0] to sorted[1]
-
-        val first = sorted[0]
-        val second = sorted[1]
-        val third = sorted[2]
-        return if (abs(first.staff.yLower() - y) <= abs(first.staff.yUpper() - y)) {
-            when {
-                second.staff.yCenter > first.staff.yCenter -> first to second
-                third.staff.yCenter > first.staff.yCenter -> first to third
-                else -> first to first
-            }
-        } else {
-            when {
-                second.staff.yCenter < first.staff.yCenter -> first to second
-                third.staff.yCenter < first.staff.yCenter -> first to third
-                else -> first to first
-            }
-        }
-    }
-
     private fun BoundingBox.centerX(): Int = pythonRound((left + right) / 2.0)
     private fun BoundingBox.centerY(): Int = pythonRound((top + bottom) / 2.0)
-    private fun com.sheetsight.app.data.omr.staffline.ZoneStaff.xCenter(): Double =
-        lines.map { it.xCenter }.average()
-    private fun com.sheetsight.app.data.omr.staffline.ZoneStaff.yUpper(): Int =
-        lines.minOf { it.yUpper }
-    private fun com.sheetsight.app.data.omr.staffline.ZoneStaff.yLower(): Int =
-        lines.maxOf { it.yLower }
     private fun pythonRound(value: Double): Int = round(value).toInt()
 }

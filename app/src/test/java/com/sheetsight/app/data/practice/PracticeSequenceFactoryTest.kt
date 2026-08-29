@@ -9,8 +9,10 @@ import org.junit.Test
 class PracticeSequenceFactoryTest {
     @Test
     fun `MusicXML conversion preserves note order chords accidentals measures and rests`() {
-        val sequence = PracticeMusicXmlLoader().load("lesson.musicxml", SCORE.toByteArray()).sequence
+        val loaded = PracticeMusicXmlLoader().load("lesson.musicxml", SCORE.toByteArray())
+        val sequence = loaded.sequence
 
+        assertTrue(loaded.musicXml.contains("<score-partwise"))
         assertEquals("lesson.musicxml", sequence.source.fileName)
         assertEquals(2, sequence.source.measureCount)
         assertEquals(listOf("C4", "D4", "Rest", "E4 + G4", "F#4", "Gb4"), sequence.steps.map { it.displayText })

@@ -1,0 +1,58 @@
+{
+  "formatVersion": 1,
+  "pageId": "canon-in-d-reference-page",
+  "annotationStatus": "STRUCTURE_COMPLETE_EVENTS_PENDING",
+  "eligibleForMetrics": false,
+  "matchingToleranceStaffSpaces": 0.50,
+  "source": {
+    "width": 1080,
+    "height": 1395,
+    "sha256": "91D5DEE9CC11406722FD6877A4832B88A01EA83CF92B7CFAD656E950331E2843",
+    "orientation": "TOP_LEFT"
+  },
+  "expected": { "systemCount": 5, "staffCount": 10, "measureCount": 20 },
+  "systems": [
+    {
+      "id": "system-0", "index": 0, "yBand": [205, 360],
+      "barlineXs": [75, 373, 582, 793, 1003],
+      "staffs": [
+        { "id": "s0-treble", "track": 0, "order": "TREBLE", "lineYsAtCenterX": [221, 230, 238, 247, 255], "clef": "TREBLE", "keySharps": 2, "time": [4, 4] },
+        { "id": "s0-bass", "track": 1, "order": "BASS", "lineYsAtCenterX": [313, 321, 330, 338, 347], "clef": "BASS", "keySharps": 2, "time": [4, 4] }
+      ]
+    },
+    {
+      "id": "system-1", "index": 1, "yBand": [430, 585],
+      "barlineXs": [75, 358, 573, 788, 1003],
+      "staffs": [
+        { "id": "s1-treble", "track": 0, "order": "TREBLE", "lineYsAtCenterX": [445, 454, 462, 471, 479], "clef": "TREBLE", "keySharps": 2, "time": null },
+        { "id": "s1-bass", "track": 1, "order": "BASS", "lineYsAtCenterX": [537, 545, 554, 562, 571], "clef": "BASS", "keySharps": 2, "time": null }
+      ]
+    },
+    {
+      "id": "system-2", "index": 2, "yBand": [660, 815],
+      "barlineXs": [75, 358, 573, 788, 1003],
+      "staffs": [
+        { "id": "s2-treble", "track": 0, "order": "TREBLE", "lineYsAtCenterX": [678, 686, 695, 703, 712], "clef": "TREBLE", "keySharps": 2, "time": null },
+        { "id": "s2-bass", "track": 1, "order": "BASS", "lineYsAtCenterX": [770, 778, 787, 795, 804], "clef": "BASS", "keySharps": 2, "time": null }
+      ]
+    },
+    {
+      "id": "system-3", "index": 3, "yBand": [885, 1040],
+      "barlineXs": [75, 358, 573, 788, 1003],
+      "staffs": [
+        { "id": "s3-treble", "track": 0, "order": "TREBLE", "lineYsAtCenterX": [901, 910, 918, 927, 935], "clef": "TREBLE", "keySharps": 2, "time": null },
+        { "id": "s3-bass", "track": 1, "order": "BASS", "lineYsAtCenterX": [993, 1001, 1010, 1018, 1027], "clef": "BASS", "keySharps": 2, "time": null }
+      ]
+    },
+    {
+      "id": "system-4", "index": 4, "yBand": [1110, 1270],
+      "barlineXs": [75, 358, 573, 788, 1003],
+      "staffs": [
+        { "id": "s4-treble", "track": 0, "order": "TREBLE", "lineYsAtCenterX": [1125, 1134, 1142, 1151, 1159], "clef": "TREBLE", "keySharps": 2, "time": null },
+        { "id": "s4-bass", "track": 1, "order": "BASS", "lineYsAtCenterX": [1217, 1225, 1234, 1242, 1251], "clef": "BASS", "keySharps": 2, "time": null }
+      ]
+    }
+  ],
+  "events": [],
+  "incompleteReason": "Manual notehead, chord, rhythm, and rest transcription has not yet been double-checked. Structure is not sufficient for precision/recall claims."
+}

@@ -4,6 +4,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import com.sheetsight.app.MainActivity
@@ -44,6 +45,22 @@ class PracticeScreenTest {
         compose.onNodeWithTag("practice_progress").assertIsDisplayed()
         compose.onNodeWithTag("practice_start").assertIsDisplayed().performClick()
         assertTrue(startClicked)
+    }
+
+    @Test
+    fun importedMusicXmlUsesFullEngravingRenderer() {
+        compose.activity.setContent {
+            MaterialTheme {
+                PracticeScreenContent(readyState.copy(musicXml = MUSIC_XML))
+            }
+        }
+
+        compose.onNodeWithTag("practice_score").assertIsDisplayed()
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.onAllNodesWithTag("alphatab_score_view").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("alphatab_score_view").assertIsDisplayed()
+        compose.onNodeWithTag("practice_notation_system_0").assertDoesNotExist()
     }
 
     @Test
@@ -152,4 +169,18 @@ class PracticeScreenTest {
         statistics = NotationStatistics(1, 1, 1, 1, 0),
         unsupportedElements = emptyMap()
     )
+
+    private companion object {
+        val MUSIC_XML = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+            <score-partwise>
+              <part-list><score-part id="P1"><part-name /></score-part></part-list>
+              <part id="P1"><measure number="1">
+                <attributes><divisions>1</divisions></attributes>
+                <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+              </measure></part>
+            </score-partwise>
+        """.trimIndent()
+    }
 }

@@ -2,6 +2,8 @@ package com.sheetsight.app.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sheetsight.app.data.local.AppDatabase
 import com.sheetsight.app.data.local.dao.ScoreDao
 import dagger.Module
@@ -28,14 +30,28 @@ object DatabaseModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-            // No real user data exists in the schema yet (Phase 2.1), so a
-            // destructive fallback is safe. Replace with an explicit
-            // Migration before this app ever ships with real score data.
+            .addMigrations(MIGRATION_4_5)
+            // Older pre-v4 development schemas still use the existing fallback;
+            // v4 score data is preserved by the explicit lifecycle migration.
             .fallbackToDestructiveMigration()
             .build()
 
     @Provides
     fun provideScoreDao(database: AppDatabase): ScoreDao =
         database.scoreDao()
-}
 
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE scores ADD COLUMN original_music_xml_path TEXT")
+            database.execSQL("ALTER TABLE scores ADD COLUMN current_music_xml_path TEXT")
+            database.execSQL(
+                """
+                UPDATE scores
+                SET original_music_xml_path = music_xml_path,
+                    current_music_xml_path = music_xml_path
+                WHERE music_xml_path IS NOT NULL
+                """.trimIndent()
+            )
+        }
+    }
+}

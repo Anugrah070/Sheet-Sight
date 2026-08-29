@@ -11,7 +11,7 @@ import androidx.room.PrimaryKey
  * `ScoreMapper.kt`.
  *
  * Column layout matches the Library storage requirements: source file,
- * derived MusicXML, timestamps, page count, favorite flag, practice
+ * original/current MusicXML paths, timestamps, page count, favorite flag, practice
  * progress, and a freeform annotations placeholder. PDF/OMR import itself
  * is not implemented yet (Phase 3/4) — this only defines where the result
  * of that work will be stored.
@@ -27,9 +27,17 @@ data class ScoreEntity(
     @ColumnInfo(name = "original_file_path")
     val originalFilePath: String,
 
-    /** Null until OMR/editing has produced a corrected MusicXML file. */
+    /** Phase 7 and earlier compatibility column. Phase 8 migration copies it forward. */
     @ColumnInfo(name = "music_xml_path")
-    val musicXmlPath: String? = null,
+    val legacyMusicXmlPath: String? = null,
+
+    /** Immutable first OMR output. */
+    @ColumnInfo(name = "original_music_xml_path")
+    val originalMusicXmlPath: String? = null,
+
+    /** Authoritative latest saved score version used by Editor. */
+    @ColumnInfo(name = "current_music_xml_path")
+    val currentMusicXmlPath: String? = null,
 
     @ColumnInfo(name = "import_date")
     val importDate: Long,

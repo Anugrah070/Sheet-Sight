@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Practice audio is processed locally in memory and is never persisted. -->
+    <!-- Ordinary Practice audio is memory-only. PCM persistence exists only in the explicit
+         developer guided-capture screen after Record take, followed by user-selected ZIP export. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application

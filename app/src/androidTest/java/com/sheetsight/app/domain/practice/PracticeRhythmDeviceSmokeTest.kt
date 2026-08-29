@@ -1,8 +1,6 @@
 package com.sheetsight.app.domain.practice
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.sheetsight.app.data.audio.NoteOnsetEvidence
-import com.sheetsight.app.data.audio.StablePitchEvent
 import com.sheetsight.app.data.practice.PracticeMusicXmlLoader
 import org.junit.Assert.assertEquals
 import org.junit.Test

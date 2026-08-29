@@ -42,6 +42,16 @@ sealed class Destination(
      * Reachable only from Settings, never shown as a bottom-bar tab.
      */
     data object OmrSmokeTest : Destination("omr_smoke_test", R.string.nav_omr_smoke_test, Icons.Filled.BugReport)
+    data object AcousticValidation : Destination(
+        "acoustic_validation",
+        R.string.nav_acoustic_validation,
+        Icons.Filled.BugReport
+    )
+    data object GuidedPianoCapture : Destination(
+        "guided_piano_capture",
+        R.string.nav_guided_piano_capture,
+        Icons.Filled.BugReport
+    )
 
     companion object {
         val bottomBarDestinations = listOf(Library, Editor, Practice, Analysis, Settings)

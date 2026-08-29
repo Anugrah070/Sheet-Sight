@@ -1,7 +1,7 @@
 package com.sheetsight.app.ui.practice
 
-import com.sheetsight.app.data.audio.StablePitchEvent
-import com.sheetsight.app.data.audio.NoteOnsetEvidence
+import com.sheetsight.app.domain.practice.StablePitchEvent
+import com.sheetsight.app.domain.practice.NoteOnsetEvidence
 import com.sheetsight.app.data.practice.PracticeMusicXmlLoader
 import com.sheetsight.app.domain.practice.DetectedPitch
 import com.sheetsight.app.domain.practice.PracticeEngine

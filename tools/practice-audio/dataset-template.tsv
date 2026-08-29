@@ -1,0 +1,24 @@
+id	wav	scenario	register	attack	expected_midi_sequence	expected_onsets_ms	performed_midi	phone_placement	room_condition	manual_verified	reviewer	notes	device_model	android_version	requested_sample_rate_hz	actual_sample_rate_hz	requested_audio_source	actual_audio_source	unprocessed_supported	agc_status	noise_suppressor_status	piano	recorded_at_utc	routed_audio_device	buffer_size_frames
+correct-low-01	local-recordings/correct-low-01.wav	CORRECT_ISOLATED	LOW	NORMAL	36	500	36	NORMAL	QUIET	false		C2, no pedal
+correct-mid-01	local-recordings/correct-mid-01.wav	CORRECT_ISOLATED	MID	NORMAL	60	500	60	NORMAL	QUIET	false		C4, no pedal
+correct-high-01	local-recordings/correct-high-01.wav	CORRECT_ISOLATED	HIGH	NORMAL	84	500	84	NORMAL	QUIET	false		C6, no pedal
+very-soft-low-01	local-recordings/very-soft-low-01.wav	VERY_SOFT_EXPECTED	LOW	VERY_SOFT	36	500	36	NORMAL	QUIET	false		PP-like C2
+very-soft-mid-01	local-recordings/very-soft-mid-01.wav	VERY_SOFT_EXPECTED	MID	VERY_SOFT	60	500	60	NORMAL	QUIET	false		PP-like C4
+very-soft-high-01	local-recordings/very-soft-high-01.wav	VERY_SOFT_EXPECTED	HIGH	VERY_SOFT	84	500	84	NORMAL	QUIET	false		PP-like C6
+soft-low-01	local-recordings/soft-low-01.wav	CORRECT_ISOLATED	LOW	SOFT	36	500	36	NORMAL	QUIET	false		Soft C2, no pedal
+soft-mid-01	local-recordings/soft-mid-01.wav	CORRECT_ISOLATED	MID	SOFT	60	500	60	NORMAL	QUIET	false		Soft C4, no pedal
+soft-high-01	local-recordings/soft-high-01.wav	CORRECT_ISOLATED	HIGH	SOFT	84	500	84	NORMAL	QUIET	false		Soft C6, no pedal
+strong-low-01	local-recordings/strong-low-01.wav	STRONG_EXPECTED	LOW	STRONG	36	500	36	NORMAL	QUIET	false		Strong C2, no pedal
+strong-mid-01	local-recordings/strong-mid-01.wav	STRONG_EXPECTED	MID	STRONG	60	500	60	NORMAL	QUIET	false		Strong C4, no pedal
+strong-high-01	local-recordings/strong-high-01.wav	STRONG_EXPECTED	HIGH	STRONG	84	500	84	NORMAL	QUIET	false		Strong C6, no pedal
+wrong-isolated-01	local-recordings/wrong-isolated-01.wav	WRONG_ISOLATED	MID	NORMAL	60	-	62	NORMAL	QUIET	false		Expected C4, intentionally play D4
+neighbor-semitone-01	local-recordings/neighbor-semitone-01.wav	NEIGHBOR_SEMITONE	MID	NORMAL	60	-	61	NORMAL	QUIET	false		Expected C4, intentionally play C#4
+octave-low-01	local-recordings/octave-low-01.wav	OCTAVE_ERROR	LOW	NORMAL	48	-	36	NORMAL	QUIET	false		Expected C3, intentionally play C2
+octave-high-01	local-recordings/octave-high-01.wav	OCTAVE_ERROR	MID	NORMAL	60	-	72	NORMAL	QUIET	false		Expected C4, intentionally play C5
+repeated-three-01	local-recordings/repeated-three-01.wav	REPEATED_RESTRIKES	MID	NORMAL	60,60,60	500,1100,1700	60,60,60	NORMAL	QUIET	false		Three separate attacks
+repeated-sustain-01	local-recordings/repeated-sustain-01.wav	REPEATED_SUSTAIN	MID	NORMAL	60,60,60	500,-,-	60	NORMAL	QUIET	false		One sustained C4 must advance once
+legato-mid-01	local-recordings/legato-mid-01.wav	LEGATO_TRANSITION	MID	SOFT	60,64,67	500,1050,1600	60,64,67	NORMAL	QUIET	false		Intentional overlap
+sustain-residual-01	local-recordings/sustain-residual-01.wav	SUSTAIN_RESIDUAL	MID	NORMAL	60,72	500,-	60	NORMAL	QUIET	false		C4 residual must not satisfy C5
+after-silence-01	local-recordings/after-silence-01.wav	NOTE_AFTER_SILENCE	MID	SOFT	64	1500	64	NORMAL	QUIET	false		Long quiet lead-in
+background-noise-01	local-recordings/background-noise-01.wav	BACKGROUND_NOISE	MID	NONE	60	-	-	NORMAL	ROOM_NOISE	false		No piano note
+silence-01	local-recordings/silence-01.wav	SILENCE	MID	NONE	60	-	-	NORMAL	QUIET	false		No piano note; keep the room as quiet as practical

@@ -41,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -261,6 +262,48 @@ fun PreviewScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
+                        }
+                    }
+                }
+            }
+
+            if (uiState.recognition is PreviewRecognitionState.Completed) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoFixHigh,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = stringResource(R.string.preview_omr_completed),
+                            style = MaterialTheme.typography.headlineSmall,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.preview_omr_success_message),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        FilledTonalButton(
+                            onClick = { uiState.score?.id?.let(onOpenEditor) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 32.dp)
+                        ) {
+                            Text(stringResource(R.string.preview_view_rendered_score))
+                        }
+                        TextButton(
+                            onClick = onBack,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        ) {
+                            Text(stringResource(R.string.preview_back_to_library))
                         }
                     }
                 }

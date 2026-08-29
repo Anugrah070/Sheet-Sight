@@ -9,14 +9,16 @@ import com.sheetsight.app.data.audio.ReleaseCalibrationSession
 import com.sheetsight.app.data.audio.ReleaseCalibrationStage
 import com.sheetsight.app.data.audio.ReleaseCalibrationStatus
 import com.sheetsight.app.data.audio.ReleaseCalibrationStore
-import com.sheetsight.app.data.audio.StablePitchFilter
-import com.sheetsight.app.data.audio.StablePitchEvent
+import com.sheetsight.app.data.audio.recognition.PracticeAudioRecognizer
+import com.sheetsight.app.data.audio.recognition.PracticeRecognitionContext
+import com.sheetsight.app.di.DefaultDispatcher
 import com.sheetsight.app.domain.practice.DurationFeedback
 import com.sheetsight.app.domain.practice.DurationResult
 import com.sheetsight.app.domain.practice.MatchState
 import com.sheetsight.app.domain.practice.PracticeEngine
 import com.sheetsight.app.domain.practice.PracticePhase
 import com.sheetsight.app.domain.practice.PracticeProgress
+import com.sheetsight.app.domain.practice.StablePitchEvent
 import com.sheetsight.app.domain.usecase.LoadPracticeScoreUseCase
 import com.sheetsight.app.domain.usecase.PracticeScoreLoadOutcome
 import com.sheetsight.app.ui.editor.notation.NotationDocument
@@ -26,12 +28,14 @@ import java.util.logging.Level
 import java.util.logging.Logger
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class MicrophonePermissionState { Unknown, Granted, Denied }
 
@@ -39,6 +43,7 @@ data class PracticeUiState(
     val progress: PracticeProgress = PracticeProgress(),
     val microphonePermission: MicrophonePermissionState = MicrophonePermissionState.Unknown,
     val notation: NotationDocument? = null,
+    val musicXml: String? = null,
     val durationFeedback: DurationFeedback? = null,
     val articulationActive: Boolean = false,
     val recentDurationResults: List<DurationResult> = emptyList(),
@@ -52,11 +57,12 @@ data class PracticeUiState(
 class PracticeViewModel @Inject constructor(
     private val loadPracticeScore: LoadPracticeScoreUseCase,
     private val audioPitchSource: AudioPitchSource,
-    private val releaseCalibrationStore: ReleaseCalibrationStore
+    private val releaseCalibrationStore: ReleaseCalibrationStore,
+    @DefaultDispatcher private val analysisDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     private val logger = Logger.getLogger(PracticeViewModel::class.java.name)
     private val engine = PracticeEngine()
-    private val stabilityFilter = StablePitchFilter()
+    private val audioRecognizer = PracticeAudioRecognizer()
     private val articulationTracker = AcousticNoteEventTracker()
     private val _uiState = MutableStateFlow(
         PracticeUiState(releaseCalibrationStatus = releaseCalibrationStore.status())
@@ -77,11 +83,19 @@ class PracticeViewModel @Inject constructor(
         stopPractice()
         resetArticulation()
         importJob?.cancel()
-        publish(engine.loading(), notation = null)
+        publish(engine.loading(), notation = null, musicXml = null)
         importJob = viewModelScope.launch {
             when (val outcome = loadPracticeScore(uri)) {
-                is PracticeScoreLoadOutcome.Success -> publish(engine.load(outcome.sequence), outcome.notation)
-                is PracticeScoreLoadOutcome.Failure -> publish(engine.fail(outcome.message), notation = null)
+                is PracticeScoreLoadOutcome.Success -> publish(
+                    engine.load(outcome.sequence),
+                    outcome.notation,
+                    outcome.musicXml
+                )
+                is PracticeScoreLoadOutcome.Failure -> publish(
+                    engine.fail(outcome.message),
+                    notation = null,
+                    musicXml = null
+                )
             }
         }
     }
@@ -96,7 +110,7 @@ class PracticeViewModel @Inject constructor(
             PracticePhase.Ready -> beginSession()
             PracticePhase.Paused -> {
                 articulationTracker.resume(monotonicMillis())
-                stabilityFilter.reset()
+                resetAudioRecognizer()
                 publish(engine.resume())
                 startRuntimeJobs()
             }
@@ -111,7 +125,7 @@ class PracticeViewModel @Inject constructor(
         if (engine.progress.phase != PracticePhase.Listening) return
         articulationTracker.pause(monotonicMillis())
         cancelRuntimeJobs()
-        stabilityFilter.reset()
+        resetAudioRecognizer()
         publish(engine.pause())
     }
 
@@ -120,7 +134,7 @@ class PracticeViewModel @Inject constructor(
         countInJob?.cancel()
         countInJob = null
         cancelRuntimeJobs()
-        stabilityFilter.reset()
+        resetAudioRecognizer()
         resetArticulation()
         publish(engine.stop())
     }
@@ -195,13 +209,13 @@ class PracticeViewModel @Inject constructor(
         countInJob?.cancel()
         cancelRuntimeJobs()
         cancelCalibration()
-        stabilityFilter.reset()
+        resetAudioRecognizer()
         super.onCleared()
     }
 
     private fun beginSession() {
         if (countInJob?.isActive == true || engine.progress.phase != PracticePhase.Ready) return
-        stabilityFilter.reset()
+        resetAudioRecognizer()
         resetArticulation()
         if (!engine.progress.countInEnabled) {
             publish(engine.start())
@@ -231,40 +245,71 @@ class PracticeViewModel @Inject constructor(
         if (audioJob?.isActive == true) return
         audioJob = viewModelScope.launch {
             try {
-                audioPitchSource.frames().collect { frame ->
-                    publishArticulation(articulationTracker.process(frame))
+                audioPitchSource.pcmChunks().collect { chunk ->
+                    val current = engine.progress
+                    val step = current.currentStep
+                    val expected = if (step?.isRest == false && step.tieContinuation.not()) {
+                        step.expectedPitches
+                    } else emptyList()
+                    val result = withContext(analysisDispatcher) {
+                        synchronized(audioRecognizer) {
+                            audioRecognizer.process(
+                                pcm = chunk.samples,
+                                timestampMillis = chunk.timestampMillis,
+                                context = PracticeRecognitionContext(current.currentStepIndex, expected)
+                            )
+                        }
+                    } ?: return@collect
+                    publishArticulation(articulationTracker.process(result.pitchFrame))
                     if (engine.progress.phase == PracticePhase.Completed && articulationTracker.activeEventCount == 0) {
                         audioJob?.cancel()
                         audioJob = null
                         return@collect
                     }
-                    stabilityFilter.process(frame)?.let { event ->
-                        if (event is StablePitchEvent.Stable && event.isNewOnset) {
+                    result.recognitionEvent?.let { event ->
+                        val recognized = when (event) {
+                            is StablePitchEvent.Stable -> listOf(event.pitch)
+                            is StablePitchEvent.NoteGroup -> event.pitches
+                            else -> emptyList()
+                        }
+                        val isNewOnset = when (event) {
+                            is StablePitchEvent.Stable -> event.isNewOnset
+                            is StablePitchEvent.NoteGroup -> event.isNewOnset
+                            else -> false
+                        }
+                        if (isNewOnset) {
+                            recognized.forEach { detected ->
                             publishArticulation(
                                 articulationTracker.onNewOnset(
-                                    event.pitch.nearestPitch,
-                                    event.pitch.timestampMillis
+                                        detected.nearestPitch,
+                                        detected.timestampMillis
+                                    )
                                 )
-                            )
+                            }
                         }
                         val before = engine.progress
                         val after = engine.onPitchEvent(event)
                         if (after != before) publish(after)
                         logTransition(before, after)
                         if (
-                            event is StablePitchEvent.Stable &&
+                            recognized.isNotEmpty() &&
                             after.currentStepIndex > before.currentStepIndex &&
                             before.currentStep?.isRest == false
                         ) {
-                            publishArticulation(
-                                articulationTracker.acceptNote(
-                                    step = requireNotNull(before.currentStep),
-                                    pitch = event.pitch.nearestPitch,
-                                    onsetRawMillis = event.pitch.timestampMillis,
-                                    bpm = before.tempo.bpm
-                                ),
-                                trackingStarted = true
-                            )
+                            recognized.forEach { detected ->
+                                publishArticulation(
+                                    articulationTracker.acceptNote(
+                                        step = requireNotNull(before.currentStep),
+                                        pitch = detected.nearestPitch,
+                                        onsetRawMillis = when (event) {
+                                            is StablePitchEvent.NoteGroup -> event.onsetTimestampMillis
+                                            else -> detected.timestampMillis
+                                        },
+                                        bpm = before.tempo.bpm
+                                    ),
+                                    trackingStarted = true
+                                )
+                            }
                         }
                         if (after.phase == PracticePhase.Completed && articulationTracker.activeEventCount == 0) {
                             audioJob?.cancel()
@@ -320,8 +365,16 @@ class PracticeViewModel @Inject constructor(
         }
     }
 
-    private fun publish(progress: PracticeProgress, notation: NotationDocument? = _uiState.value.notation) {
-        _uiState.value = _uiState.value.copy(progress = progress, notation = notation)
+    private fun resetAudioRecognizer() {
+        synchronized(audioRecognizer) { audioRecognizer.reset() }
+    }
+
+    private fun publish(
+        progress: PracticeProgress,
+        notation: NotationDocument? = _uiState.value.notation,
+        musicXml: String? = _uiState.value.musicXml
+    ) {
+        _uiState.value = _uiState.value.copy(progress = progress, notation = notation, musicXml = musicXml)
     }
 
     private fun publishArticulation(

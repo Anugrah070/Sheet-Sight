@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "upstream": {
+    "project": "BreezeWhite/oemer",
+    "implementationVersion": "0.1.8",
+    "license": "MIT",
+    "referenceEntryPoint": "oemer/inference.py"
+  },
+  "models": [
+    {
+      "id": "STAFF_AND_SYMBOLS",
+      "asset": "models/oemer_staff_and_symbols.onnx",
+      "sha256": "37512E858731096439746F60B377C049F07055B4A23EC6EB9A178CE92CFBA174",
+      "input": { "name": "input", "type": "UINT8", "layout": "NHWC", "shape": ["batch", 256, 256, 3] },
+      "output": { "name": "prediction", "type": "FLOAT32", "layout": "NHWC", "shape": ["batch", 256, 256, 3] },
+      "outputChannels": ["BACKGROUND", "STAFF", "SYMBOLS"]
+    },
+    {
+      "id": "SYMBOL_DETAIL",
+      "asset": "models/oemer_symbol_detail.onnx",
+      "sha256": "ED2E1A86EA75712EE6CDC740E96F7A36753543CF9BB980227C071C9256D9D82E",
+      "input": { "name": "input", "type": "UINT8", "layout": "NHWC", "shape": ["batch", 288, 288, 3] },
+      "output": { "name": "conv2d_25", "type": "FLOAT32", "layout": "NHWC", "shape": ["batch", 288, 288, 4] },
+      "outputChannels": ["BACKGROUND", "STEMS_RESTS", "NOTEHEADS", "CLEFS_KEYS"]
+    }
+  ],
+  "inputPixels": {
+    "channelOrder": "BGR bytes passed through upstream's RGB-labelled Pillow array",
+    "normalization": "NONE",
+    "canonicalTargetPixels": 3675000,
+    "trainedRange": [3000000, 4350000],
+    "resize": "BICUBIC"
+  },
+  "merge": {
+    "tensorMemoryOrder": "row-major NHWC",
+    "outputMemoryOrder": "row-major HWC",
+    "reduction": "per-channel arithmetic mean over every covering tile",
+    "classSelection": "argmax over final channel"
+  }
+}

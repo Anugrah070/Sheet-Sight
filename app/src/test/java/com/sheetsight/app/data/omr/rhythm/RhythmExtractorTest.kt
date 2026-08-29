@@ -27,6 +27,30 @@ import org.junit.Test
 class RhythmExtractorTest {
 
     @Test
+    fun `rhythm unit interpolation weights the nearer staff more strongly`() {
+        val upper = RhythmExtractor.StaffGeometry(
+            xCenter = 50.0,
+            yCenter = 20.0,
+            yUpper = 0.0,
+            yLower = 40.0,
+            unitSize = 10.0
+        )
+        val lower = RhythmExtractor.StaffGeometry(
+            xCenter = 50.0,
+            yCenter = 100.0,
+            yUpper = 80.0,
+            yLower = 120.0,
+            unitSize = 20.0
+        )
+
+        val unit = RhythmExtractor.unitSizeAt(listOf(upper, lower), x = 50, y = 70)
+
+        // y=70 is 50 px from the upper staff and 30 px from the lower, so
+        // the lower staff's 20 px spacing must receive the larger weight.
+        assertEquals(16.25, requireNotNull(unit), 0.001)
+    }
+
+    @Test
     fun `stemmed solid note resolves to quarter`() {
         val page = SyntheticPage()
         val note = page.note(0, BoundingBox(30, 55, 39, 63))

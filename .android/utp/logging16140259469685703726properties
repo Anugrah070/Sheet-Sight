@@ -1,0 +1,7 @@
+.level=INFO
+.handlers=java.util.logging.ConsoleHandler,java.util.logging.FileHandler
+java.util.logging.ConsoleHandler.level=OFF
+java.util.logging.SimpleFormatter.format=%4$s: %5$s%n
+java.util.logging.FileHandler.level=INFO
+java.util.logging.FileHandler.pattern=D:/PROJECTS/Sheet-Sight-main/app/build/outputs/androidTest-results/connected/debug/CPH2707 - 16/utp.%u.log
+java.util.logging.FileHandler.formatter=java.util.logging.SimpleFormatter

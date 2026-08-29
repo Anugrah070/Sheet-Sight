@@ -1,6 +1,7 @@
 package com.sheetsight.app.data.omr.debug
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -15,6 +16,7 @@ import com.sheetsight.app.data.omr.dewarp.DewarpPipeline
 import com.sheetsight.app.data.omr.dewarp.ImageMaskAligner
 import com.sheetsight.app.data.omr.inference.ClassMaskExtractor
 import com.sheetsight.app.data.omr.inference.OmrClassMasks
+import com.sheetsight.app.data.omr.inference.OmrRuntimeTuning
 import com.sheetsight.app.data.omr.inference.TileInferenceRunner
 import com.sheetsight.app.data.omr.grouping.NoteGrouper
 import com.sheetsight.app.data.omr.musicxml.MusicXmlExporter
@@ -26,6 +28,7 @@ import com.sheetsight.app.data.omr.preprocessing.ImagePreprocessing
 import com.sheetsight.app.data.omr.preprocessing.OmrModelSpec
 import com.sheetsight.app.data.omr.preprocessing.SlidingWindowTiler
 import com.sheetsight.app.data.omr.track.OmrStaffGridAssembler
+import com.sheetsight.app.data.omr.track.StaffGeometryResolver
 import com.sheetsight.app.data.omr.rhythm.RhythmEvidenceMasks
 import com.sheetsight.app.data.omr.rhythm.RhythmCandidate
 import com.sheetsight.app.data.omr.rhythm.RhythmExtractionResult
@@ -36,8 +39,11 @@ import com.sheetsight.app.data.omr.rhythm.RestRhythmResult
 import com.sheetsight.app.data.omr.rhythm.StemAssociationStatus
 import com.sheetsight.app.data.omr.semantic.SemanticScoreConstructor
 import com.sheetsight.app.data.omr.semantic.SemanticChord
+import com.sheetsight.app.data.omr.semantic.SemanticRest
 import com.sheetsight.app.data.omr.semantic.summary
 import com.sheetsight.app.data.omr.symbol.MusicalBarlineDiagnostics
+import com.sheetsight.app.data.omr.symbol.RestExtractionDiagnostics
+import com.sheetsight.app.data.omr.symbol.RestWholeHalfPlacement
 import com.sheetsight.app.data.omr.symbol.SymbolExtractor
 import com.sheetsight.app.ui.editor.notation.NotationLayoutEngine
 import com.sheetsight.app.di.DefaultDispatcher
@@ -130,7 +136,11 @@ class OmrSmokeTestRunner @Inject constructor(
         stopAfter: SmokeTestStage,
         listener: OmrProgressListener? = null,
         /** Developer parity experiment only; production callers leave this null. */
-        inferenceStepSize: Int? = null
+        inferenceStepSize: Int? = null,
+        /** Reproduces the historical per-model no-overlap regression for before/after evaluation. */
+        legacyNonOverlappingStride: Boolean = false,
+        /** Debug comparison inside the checkpoints' trained pixel-count range. */
+        inferenceTargetPixels: Int = CanonicalImageResizer.DEFAULT_TARGET_PIXELS
     ): OmrSmokeTestDiagnosticResult =
         withContext(defaultDispatcher) {
             val timings = mutableListOf<OmrSmokeTestStageTiming>()
@@ -138,6 +148,11 @@ class OmrSmokeTestRunner @Inject constructor(
             val details = mutableMapOf<SmokeTestStage, List<String>>()
             var lastCompletedStage: SmokeTestStage? = null
             val calculator = listener?.let { OmrProgressCalculator(it) }
+            fun stepSizeFor(spec: OmrModelSpec): Int = when {
+                inferenceStepSize != null -> inferenceStepSize
+                legacyNonOverlappingStride -> spec.windowSize
+                else -> spec.windowSize
+            }
 
             // Retained-between-stages state. Each is released in `finally`
             // below and nulled out the moment an earlier stage no longer
@@ -146,6 +161,7 @@ class OmrSmokeTestRunner @Inject constructor(
             var bitmap: Bitmap? = null
             var oemerOrdered: Mat? = null
             var resized: Mat? = null
+            var oemerOrderedPreview: Bitmap? = null
 
             try {
                 // STAGE 1 — Input decode
@@ -174,7 +190,12 @@ class OmrSmokeTestRunner @Inject constructor(
                 calculator?.updateStage(OmrStage.PREPROCESSING, 0.1f)
                 traceStage(SmokeTestStage.PREPROCESSING, timings) {
                     oemerOrdered = ImagePreprocessing.toOemerOrderedMat(bitmap!!)
-                    resized = CanonicalImageResizer.resize(oemerOrdered!!)
+                    oemerOrderedPreview = OmrSmokeTestBitmaps.channelsToThumbnail(
+                        ImagePreprocessing.extractChannels(oemerOrdered!!),
+                        oemerOrdered!!.width(),
+                        oemerOrdered!!.height()
+                    )
+                    resized = CanonicalImageResizer.resize(oemerOrdered!!, inferenceTargetPixels)
                     oemerOrdered?.release()
                     oemerOrdered = null
                 }
@@ -189,13 +210,15 @@ class OmrSmokeTestRunner @Inject constructor(
                 val canonicalImageChannels = ImagePreprocessing.extractChannels(resized!!)
                 calculator?.updateStage(OmrStage.PREPROCESSING, 1f)
                 previews[SmokeTestStage.PREPROCESSING] = listOf(
+                    OmrSmokeTestPreview("oemerOrderedBeforeResize", requireNotNull(oemerOrderedPreview)),
                     OmrSmokeTestPreview(
-                        "canonical",
+                        "canonicalInferenceImage",
                         OmrSmokeTestBitmaps.channelsToThumbnail(canonicalImageChannels, canonicalWidth, canonicalHeight)
                     )
                 )
                 details[SmokeTestStage.PREPROCESSING] = listOf(
                     "canonical size: ${canonicalWidth}x$canonicalHeight",
+                    "target pixels=$inferenceTargetPixels",
                     "byte order=BGR",
                     "tensor input=UINT8; normalization=none"
                 )
@@ -215,15 +238,43 @@ class OmrSmokeTestRunner @Inject constructor(
                             spec,
                             canonicalWidth,
                             canonicalHeight,
-                            inferenceStepSize ?: spec.windowSize
+                            stepSizeFor(spec)
                         )
                     }
                 }
                 calculator?.updateStage(OmrStage.TILING, 1f)
                 details[SmokeTestStage.TILING] = tileCounts.map { (spec, count) ->
                     "${spec.name}: $count tiles @ ${spec.windowSize}x${spec.windowSize}, " +
-                            "stride=${inferenceStepSize ?: spec.windowSize} " +
+                            "stride=${stepSizeFor(spec)} " +
                             "(count only -- no tiles allocated yet)"
+                }
+                val canonicalPreview = previews.getValue(SmokeTestStage.PREPROCESSING)
+                    .first { it.label == "canonicalInferenceImage" }.bitmap
+                previews[SmokeTestStage.TILING] = OmrModelSpec.entries.map { spec ->
+                    val stride = stepSizeFor(spec)
+                    val origins = SlidingWindowTiler.computeOrigins(
+                        maxOf(canonicalWidth, spec.windowSize),
+                        maxOf(canonicalHeight, spec.windowSize),
+                        spec.windowSize,
+                        stride
+                    )
+                    OmrSmokeTestPreview(
+                        "${spec.name.lowercase()}TileBoundaries",
+                        OmrSmokeTestBitmaps.overlayThumbnail(
+                            background = canonicalPreview,
+                            sourceWidth = canonicalWidth,
+                            sourceHeight = canonicalHeight,
+                            boxes = origins.map { (x, y) ->
+                                DebugOverlayBox(
+                                    x,
+                                    y,
+                                    minOf(x + spec.windowSize, canonicalWidth),
+                                    minOf(y + spec.windowSize, canonicalHeight),
+                                    0x88FF0000.toInt()
+                                )
+                            }
+                        )
+                    )
                 }
                 lastCompletedStage = SmokeTestStage.TILING
                 if (stopAfter == SmokeTestStage.TILING) {
@@ -243,7 +294,7 @@ class OmrSmokeTestRunner @Inject constructor(
                         source = resized!!,
                         canonicalWidth = canonicalWidth,
                         canonicalHeight = canonicalHeight,
-                        stepSize = inferenceStepSize ?: OmrModelSpec.STAFF_AND_SYMBOLS.windowSize,
+                        stepSize = stepSizeFor(OmrModelSpec.STAFF_AND_SYMBOLS),
                         onProgress = { current, total ->
                             calculator?.updateStage(OmrStage.MODEL1_INFERENCE, current.toFloat() / total, total, current)
                         }
@@ -257,10 +308,23 @@ class OmrSmokeTestRunner @Inject constructor(
                     result
                 }
                 details[SmokeTestStage.MODEL1_INFERENCE] = listOf(
+                    "verified graph contract: " +
+                        tileInferenceRunner.verifiedContract(OmrModelSpec.STAFF_AND_SYMBOLS),
                     "tiles processed: ${tileCounts.getValue(OmrModelSpec.STAFF_AND_SYMBOLS)}",
                     "largest single-batch output tensor: " +
                             "${largestBatchOutputTensorBytes(OmrModelSpec.STAFF_AND_SYMBOLS)} bytes",
                     "argmaxed size: ${argmaxedModel1.width}x${argmaxedModel1.height} (IntArray, float map discarded)"
+                )
+                previews[SmokeTestStage.MODEL1_INFERENCE] = listOf(
+                    OmrSmokeTestPreview(
+                        "model1Argmax_backgroundStaffSymbols",
+                        OmrSmokeTestBitmaps.classMapToThumbnail(
+                            argmaxedModel1.classes,
+                            argmaxedModel1.width,
+                            argmaxedModel1.height,
+                            intArrayOf(0xFFFFFFFF.toInt(), 0xFF2070FF.toInt(), 0xFF111111.toInt())
+                        )
+                    )
                 )
                 lastCompletedStage = SmokeTestStage.MODEL1_INFERENCE
                 if (stopAfter == SmokeTestStage.MODEL1_INFERENCE) {
@@ -277,7 +341,7 @@ class OmrSmokeTestRunner @Inject constructor(
                         source = resized!!,
                         canonicalWidth = canonicalWidth,
                         canonicalHeight = canonicalHeight,
-                        stepSize = inferenceStepSize ?: OmrModelSpec.SYMBOL_DETAIL.windowSize,
+                        stepSize = stepSizeFor(OmrModelSpec.SYMBOL_DETAIL),
                         onProgress = { current, total ->
                             calculator?.updateStage(OmrStage.MODEL2_INFERENCE, current.toFloat() / total, total, current)
                         }
@@ -293,10 +357,28 @@ class OmrSmokeTestRunner @Inject constructor(
                 resized?.release()
                 resized = null
                 details[SmokeTestStage.MODEL2_INFERENCE] = listOf(
+                    "verified graph contract: " +
+                        tileInferenceRunner.verifiedContract(OmrModelSpec.SYMBOL_DETAIL),
                     "tiles processed: ${tileCounts.getValue(OmrModelSpec.SYMBOL_DETAIL)}",
                     "largest single-batch output tensor: " +
                             "${largestBatchOutputTensorBytes(OmrModelSpec.SYMBOL_DETAIL)} bytes",
                     "argmaxed size: ${argmaxedModel2.width}x${argmaxedModel2.height} (IntArray, float map discarded)"
+                )
+                previews[SmokeTestStage.MODEL2_INFERENCE] = listOf(
+                    OmrSmokeTestPreview(
+                        "model2Argmax_backgroundStemsRestsNoteheadsClefsKeys",
+                        OmrSmokeTestBitmaps.classMapToThumbnail(
+                            argmaxedModel2.classes,
+                            argmaxedModel2.width,
+                            argmaxedModel2.height,
+                            intArrayOf(
+                                0xFFFFFFFF.toInt(),
+                                0xFFE53935.toInt(),
+                                0xFF111111.toInt(),
+                                0xFF8E24AA.toInt()
+                            )
+                        )
+                    )
                 )
                 lastCompletedStage = SmokeTestStage.MODEL2_INFERENCE
                 if (stopAfter == SmokeTestStage.MODEL2_INFERENCE) {
@@ -376,7 +458,13 @@ class OmrSmokeTestRunner @Inject constructor(
                     "tallBarlineCandidates=${gridResult.trackVote.heightRatios.size}",
                     "validatedZones=${gridResult.validatedGrid.size}",
                     "validatedStaffRows=${gridResult.validatedGrid.maxOfOrNull { it.size } ?: 0}",
-                    "validatedStaffCells=${gridResult.validatedGrid.sumOf { it.size }}"
+                    "validatedStaffCells=${gridResult.validatedGrid.sumOf { it.size }}",
+                    "assigned staff segments=" + gridResult.validatedGrid.flatten().map { assigned ->
+                        val left = assigned.staff.lines.minOf { it.xLeft }
+                        val right = assigned.staff.lines.maxOf { it.xRight }
+                        "g${assigned.group}/t${assigned.track} x=$left..$right y=${"%.1f".format(assigned.staff.yCenter)} " +
+                            "interpolated=${assigned.isInterpolated}"
+                    }
                 )
                 reusedDewarpedImagePreview(previews)?.let { base ->
                     val staffLines = gridResult.validatedGrid.flatten()
@@ -389,6 +477,17 @@ class OmrSmokeTestRunner @Inject constructor(
                     val acceptedLines = gridResult.diagnostics.acceptedHoughLines.map {
                         DebugOverlayLine(it.topX, it.topY, it.btX, it.btY, Color.MAGENTA)
                     }
+                    val staffLabels = gridResult.validatedGrid.flatten().map { assigned ->
+                        val left = assigned.staff.lines.minOf { it.xLeft }
+                        val top = assigned.staff.lines.minOf { it.yUpper }
+                        DebugOverlayLabel(
+                            left,
+                            top,
+                            "g${assigned.group}/t${assigned.track} ($left,$top)" +
+                                if (assigned.isInterpolated) " inferred" else "",
+                            if (assigned.isInterpolated) Color.rgb(230, 120, 0) else Color.rgb(0, 100, 55)
+                        )
+                    }
                     previews[SmokeTestStage.STAFF_GRID_ASSEMBLY] = listOf(
                         OmrSmokeTestPreview(
                             "accepted staff lines + grid barline segments",
@@ -396,7 +495,8 @@ class OmrSmokeTestRunner @Inject constructor(
                                 base.bitmap,
                                 dewarped.width,
                                 dewarped.height,
-                                lines = staffLines + acceptedLines
+                                lines = staffLines + acceptedLines,
+                                labels = staffLabels
                             )
                         )
                     )
@@ -412,7 +512,14 @@ class OmrSmokeTestRunner @Inject constructor(
                     NoteheadExtractor.extract(dewarped.masks, gridResult.validatedGrid)
                 }
                 details[SmokeTestStage.NOTEHEAD_EXTRACTION] = listOf(
-                    "detected notehead count=${noteheads.size}"
+                    "detected notehead count=${noteheads.size}",
+                    "notehead evidence=" + noteheads.map { note ->
+                        val box = note.boundingBox
+                        val x = (box.left + box.right) / 2
+                        val y = (box.top + box.bottom) / 2
+                        "n${note.id}@($x,$y) g${note.staffAssignment.group}/t${note.staffAssignment.track} " +
+                            "pos=${note.staffAssignment.staffLinePosition} head=${note.type}"
+                    }
                 )
                 reusedDewarpedMaskPreview(previews, "dewarped_noteheads")?.let {
                     val maskPreview = it.copy(label = "notehead mask")
@@ -427,7 +534,18 @@ class OmrSmokeTestRunner @Inject constructor(
                                 base.bitmap,
                                 dewarped.width,
                                 dewarped.height,
-                                boxes = detectedBoxes
+                                boxes = detectedBoxes,
+                                labels = noteheads.map { note ->
+                                    val box = note.boundingBox
+                                    val x = (box.left + box.right) / 2
+                                    val y = (box.top + box.bottom) / 2
+                                    DebugOverlayLabel(
+                                        box.left,
+                                        box.top,
+                                        "n${note.id} g${note.staffAssignment.group}/t${note.staffAssignment.track} ($x,$y)",
+                                        Color.rgb(0, 70, 190)
+                                    )
+                                }
                             )
                         )
                     }
@@ -450,11 +568,40 @@ class OmrSmokeTestRunner @Inject constructor(
                 }
                 val chords = groupingResult.chords
                 details[SmokeTestStage.NOTE_GROUPING] = listOf(
-                    "grouped chord count=${chords.size}"
+                    "grouped chord count=${chords.size}",
+                    "chord assignments=" + chords.map { chord ->
+                        val box = chord.boundingBox
+                        val x = (box.left + box.right) / 2
+                        val y = (box.top + box.bottom) / 2
+                        "c${chord.id}@($x,$y) g${chord.group}/t${chord.track} notes=${chord.noteheads.map { it.id }}"
+                    }
                 )
-                reusedDewarpedMaskPreview(previews, "dewarped_stemsRests")?.let {
+                reusedDewarpedMaskPreview(previews, "dewarped_stemsRests")?.let { stemsPreview ->
+                    val assignmentPreview = reusedDewarpedImagePreview(previews)?.let { base ->
+                        OmrSmokeTestPreview(
+                            "note-group and chord assignments",
+                            OmrSmokeTestBitmaps.overlayThumbnail(
+                                base.bitmap,
+                                dewarped.width,
+                                dewarped.height,
+                                boxes = chords.map { chord ->
+                                    val box = chord.boundingBox
+                                    DebugOverlayBox(box.left, box.top, box.right, box.bottom, Color.rgb(220, 90, 0))
+                                },
+                                labels = chords.map { chord ->
+                                    val box = chord.boundingBox
+                                    DebugOverlayLabel(
+                                        box.left,
+                                        box.top,
+                                        "c${chord.id} g${chord.group}/t${chord.track}",
+                                        Color.rgb(180, 65, 0)
+                                    )
+                                }
+                            )
+                        )
+                    }
                     previews[SmokeTestStage.NOTE_GROUPING] =
-                        listOf(it.copy(label = "grouping stems"))
+                        listOfNotNull(stemsPreview.copy(label = "grouping stems"), assignmentPreview)
                 }
                 lastCompletedStage = SmokeTestStage.NOTE_GROUPING
                 if (stopAfter == SmokeTestStage.NOTE_GROUPING) {
@@ -483,9 +630,22 @@ class OmrSmokeTestRunner @Inject constructor(
                     "barline filter counts=" + musicalBarlineFilterCounts(musicalBarlineDiagnostics),
                     "barlines=${symbolResult.barlines.size}",
                     "barlines by system=$barlineXsBySystem",
+                    "barline structural confidence=" + symbolResult.barlines.map {
+                        "x=${(it.boundingBox.left + it.boundingBox.right) / 2},score=${"%.2f".format(it.confidence)}"
+                    },
                     "clefs=${symbolResult.clefs.groupingBy { it.label }.eachCount()}",
                     "accidentals=${symbolResult.accidentals.groupingBy { it.label }.eachCount()}",
-                    "rests=${symbolResult.rests.groupingBy { it.label }.eachCount()}"
+                    "rests=${symbolResult.rests.groupingBy { it.label }.eachCount()}",
+                    "rest candidate filters=" + restCandidateFilterCounts(symbolResult.restDiagnostics),
+                    "rest rejected=" + symbolResult.restDiagnostics?.rejectedReasons?.map { (box, reason) ->
+                        "$reason@(${(box.left + box.right) / 2},${(box.top + box.bottom) / 2})"
+                    },
+                    "rest evidence=" + symbolResult.rests.map {
+                        "${it.label}@${(it.boundingBox.left + it.boundingBox.right) / 2}:" +
+                            "wholeHalf=${it.wholeHalfPlacement}," +
+                            "svmMargin=${it.classificationMargin ?: "n/a"}," +
+                            "placement=${it.placementConfidence ?: "n/a"}"
+                    }
                 )
                 reusedDewarpedMaskPreview(previews, "dewarped_clefsKeys")?.let {
                     val maskPreview = it.copy(label = "clefs/keys mask")
@@ -525,7 +685,39 @@ class OmrSmokeTestRunner @Inject constructor(
                         rests = symbolResult.rests
                     )
                 }
-                details[SmokeTestStage.RHYTHM_FRAMEWORK] = rhythmSummary(rhythmResult)
+                details[SmokeTestStage.RHYTHM_FRAMEWORK] = rhythmSummary(rhythmResult) +
+                    ("rhythm evidence=" + rhythmResult.noteGroups.map { candidate ->
+                        val box = candidate.chord.boundingBox
+                        val x = (box.left + box.right) / 2
+                        val y = (box.top + box.bottom) / 2
+                        "r${candidate.id}@($x,$y) g${candidate.chord.group}/t${candidate.chord.track} " +
+                            "head=${candidate.noteheads.map { it.type }} stem=${candidate.stemDirection}/" +
+                            "${candidate.stemAssociation.status} beam=${candidate.beamCount} flag=${candidate.flagCount} " +
+                            "dots=${candidate.dotCount} duration=${candidate.dottedDuration} " +
+                            "state=${candidate.resolutionState} reasons=${candidate.unresolvedReasons}"
+                    })
+                reusedDewarpedImagePreview(previews)?.let { base ->
+                    previews[SmokeTestStage.RHYTHM_FRAMEWORK] = listOf(
+                        OmrSmokeTestPreview(
+                            "stem, beam, flag, dot, and duration evidence",
+                            OmrSmokeTestBitmaps.overlayThumbnail(
+                                base.bitmap,
+                                dewarped.width,
+                                dewarped.height,
+                                labels = rhythmResult.noteGroups.map { candidate ->
+                                    val box = candidate.chord.boundingBox
+                                    val duration = candidate.dottedDuration?.toString() ?: "?"
+                                    DebugOverlayLabel(
+                                        box.left,
+                                        box.top,
+                                        "r${candidate.id} ${candidate.stemDirection} b${candidate.beamCount ?: "?"} d$duration",
+                                        if (candidate.isResolved()) Color.rgb(0, 115, 55) else Color.RED
+                                    )
+                                }
+                            )
+                        )
+                    )
+                }
                 lastCompletedStage = SmokeTestStage.RHYTHM_FRAMEWORK
                 if (stopAfter == SmokeTestStage.RHYTHM_FRAMEWORK) {
                     return@withContext diagnosticResult(lastCompletedStage, timings, previews, details, null)
@@ -648,16 +840,93 @@ class OmrSmokeTestRunner @Inject constructor(
                     rhythmResult.rests.count { it.isResolved() }
                 val unresolvedRhythmCount = rhythmResult.noteGroups.size + rhythmResult.rests.size -
                     resolvedRhythmCount
+                val semanticChordLocationByNoteId = semanticScore.measures
+                    .flatMap { measure ->
+                        measure.events.filterIsInstance<SemanticChord>().flatMap { chord ->
+                            chord.notes.map { note -> note.id to (chord to measure) }
+                        }
+                    }
+                    .toMap()
+                val rhythmByNoteheadId = rhythmResult.noteGroups
+                    .flatMap { rhythm -> rhythm.noteheads.map { note -> note.id to rhythm } }
+                    .toMap()
+                val interpretedNoteEvents = noteheads.map { notehead ->
+                    val noteId = "note-${notehead.id}"
+                    val chordLocation = semanticChordLocationByNoteId[noteId]
+                    val chord = chordLocation?.first
+                    val measure = chordLocation?.second
+                    val note = chord?.notes?.firstOrNull { it.id == noteId }
+                    val rhythm = rhythmByNoteheadId[notehead.id]
+                    val pitch = note?.pitch
+                    val duration = chord?.duration
+                    OmrInterpretedEventDetection(
+                        eventId = noteId,
+                        ownerEventId = chord?.id,
+                        measureIndex = measure?.index,
+                        kind = "NOTE",
+                        x = (notehead.boundingBox.left + notehead.boundingBox.right) / 2,
+                        y = (notehead.boundingBox.top + notehead.boundingBox.bottom) / 2,
+                        group = notehead.staffAssignment.group,
+                        track = notehead.staffAssignment.track,
+                        staffStep = notehead.staffAssignment.staffLinePosition,
+                        clef = note?.activeClef?.name,
+                        accidental = pitch?.alteration?.name,
+                        finalPitch = pitch?.let { "${it.step.name}${it.octave}" },
+                        durationNumerator = duration?.numerator,
+                        durationDenominator = duration?.denominator,
+                        rhythmState = chord?.rhythmState?.name ?: "UNRESOLVED",
+                        evidence = "head=${notehead.type};stem=${rhythm?.stemDirection};" +
+                            "beam=${rhythm?.beamCount};flag=${rhythm?.flagCount};dots=${rhythm?.dotCount};" +
+                            "reasons=${rhythm?.unresolvedReasons.orEmpty().joinToString(",")}",
+                        confidence = null
+                    )
+                }
+                val semanticRestLocationById = semanticScore.measures
+                    .flatMap { measure ->
+                        measure.events.filterIsInstance<SemanticRest>().map { rest ->
+                            rest.id to (rest to measure)
+                        }
+                    }
+                    .toMap()
+                val interpretedRestEvents = rhythmResult.rests.map { rest ->
+                    val eventId = "rest-${rest.restId}"
+                    val restLocation = semanticRestLocationById[eventId]
+                    val semanticRest = restLocation?.first
+                    val duration = semanticRest?.duration
+                    OmrInterpretedEventDetection(
+                        eventId = eventId,
+                        ownerEventId = semanticRest?.id,
+                        measureIndex = restLocation?.second?.index,
+                        kind = "REST",
+                        x = (rest.boundingBox.left + rest.boundingBox.right) / 2,
+                        y = (rest.boundingBox.top + rest.boundingBox.bottom) / 2,
+                        group = rest.group,
+                        track = rest.track,
+                        durationNumerator = duration?.numerator,
+                        durationDenominator = duration?.denominator,
+                        rhythmState = semanticRest?.rhythmState?.name ?: "UNRESOLVED",
+                        evidence = "label=${rest.label};placement=${rest.source.wholeHalfPlacement};" +
+                            "dots=${rest.dotCount};reasons=${rest.unresolvedReasons.joinToString(",")}",
+                        confidence = rest.source.placementConfidence
+                            ?: rest.source.classificationMargin?.toDouble()
+                    )
+                }
                 val accuracyReport = OmrAccuracyDiagnosticReport(
                     pageName = File(imagePath).name,
                     inputResolution = "${inputWidth}x$inputHeight",
                     inputOrientation = inputOrientation,
                     canonicalResolution = "${canonicalWidth}x$canonicalHeight",
+                    executionProfile = OmrRuntimeTuning.executionProfile.name,
+                    inferenceBatchSize = OmrRuntimeTuning.inferenceBatchSize,
                     tileCounts = tileCounts.mapKeys { it.key.name }.toSortedMap(),
                     modelInferenceTimingsMs = mapOf(
                         OmrModelSpec.STAFF_AND_SYMBOLS.name to durationMs(timings, SmokeTestStage.MODEL1_INFERENCE),
                         OmrModelSpec.SYMBOL_DETAIL.name to durationMs(timings, SmokeTestStage.MODEL2_INFERENCE)
                     ),
+                    staffSystemCount = gridResult.validatedGrid.flatten()
+                        .map { it.group }
+                        .distinct()
+                        .size,
                     staffCount = gridResult.validatedGrid.flatten()
                         .map { it.group to it.track }
                         .distinct()
@@ -667,11 +936,63 @@ class OmrSmokeTestRunner @Inject constructor(
                     musicalBarlineFilterCounts = musicalBarlineFilterCounts(musicalBarlineDiagnostics),
                     musicalBarlineCount = symbolResult.barlines.size,
                     barlineXsBySystem = barlineXsBySystem,
+                    barlineDetections = symbolResult.barlines.map {
+                        OmrLocatedDetection(
+                            x = (it.boundingBox.left + it.boundingBox.right) / 2,
+                            y = (it.boundingBox.top + it.boundingBox.bottom) / 2,
+                            label = "barline",
+                            group = it.group,
+                            confidence = it.confidence
+                        )
+                    },
                     noteheadCount = noteheads.size,
+                    noteheadDetections = noteheads.map {
+                        OmrLocatedDetection(
+                            x = (it.boundingBox.left + it.boundingBox.right) / 2,
+                            y = (it.boundingBox.top + it.boundingBox.bottom) / 2,
+                            label = it.type.name,
+                            group = it.staffAssignment.group,
+                            track = it.staffAssignment.track
+                        )
+                    },
                     groupedNoteChordCount = chords.size,
                     clefCounts = symbolResult.clefs.groupingBy { it.label.name }.eachCount().toSortedMap(),
                     accidentalCounts = symbolResult.accidentals.groupingBy { it.label.name }.eachCount().toSortedMap(),
                     restCounts = symbolResult.rests.groupingBy { it.label.name }.eachCount().toSortedMap(),
+                    restDetections = symbolResult.rests.map {
+                        OmrLocatedDetection(
+                            x = (it.boundingBox.left + it.boundingBox.right) / 2,
+                            y = (it.boundingBox.top + it.boundingBox.bottom) / 2,
+                            label = when (it.wholeHalfPlacement) {
+                                RestWholeHalfPlacement.WHOLE -> "WHOLE"
+                                RestWholeHalfPlacement.HALF -> "HALF"
+                                else -> it.label.name
+                            },
+                            group = it.assignment.group,
+                            track = it.assignment.track,
+                            confidence = it.placementConfidence
+                                ?: it.classificationMargin?.toDouble()
+                        )
+                    },
+                    restCandidateFilterCounts = restCandidateFilterCounts(symbolResult.restDiagnostics),
+                    restRejectedDetections = symbolResult.restDiagnostics?.rejectedReasons?.map { (box, reason) ->
+                        val x = (box.left + box.right) / 2
+                        val y = (box.top + box.bottom) / 2
+                        val assignment = StaffGeometryResolver.assignNote(
+                            gridResult.validatedGrid,
+                            x,
+                            y
+                        ).staff
+                        OmrLocatedDetection(
+                            x = x,
+                            y = y,
+                            label = reason,
+                            group = assignment.group,
+                            track = assignment.track
+                        )
+                    }.orEmpty(),
+                    correctlyTypedRestCount = rhythmResult.rests.count { it.baseDuration != null },
+                    interpretedEvents = interpretedNoteEvents + interpretedRestEvents,
                     rhythmResolvedCount = resolvedRhythmCount,
                     rhythmUnresolvedCount = unresolvedRhythmCount,
                     semanticNoteCount = semanticSummary.notes,
@@ -683,6 +1004,7 @@ class OmrSmokeTestRunner @Inject constructor(
                     musicXmlBarlineLocations = export.exportedBarlineLocations,
                     editorParsedMeasureCount = editorRoundTrip?.parsedMeasures ?: 0,
                     editorRenderedMeasureCount = editorRoundTrip?.renderedMeasures ?: 0,
+                    rhythmicallyValidMeasureCount = null,
                     musicXmlExportWarnings = export.warnings.map { "${it.code}: ${it.message}" }
                 )
                 Log.d(TAG, "[OMR_ACCURACY] $accuracyReport")
@@ -770,7 +1092,7 @@ class OmrSmokeTestRunner @Inject constructor(
 
     /** Byte size of the largest single output tensor [spec] will ever produce in one batch (FLOAT32). */
     private fun largestBatchOutputTensorBytes(spec: OmrModelSpec): Long =
-        TileInferenceRunner.DEFAULT_BATCH_SIZE.toLong() *
+        OmrRuntimeTuning.inferenceBatchSize.toLong() *
                 spec.windowSize.toLong() * spec.windowSize.toLong() *
                 spec.outputChannels.toLong() * Float.SIZE_BYTES
 
@@ -789,7 +1111,7 @@ class OmrSmokeTestRunner @Inject constructor(
             "[OMR_SMOKE] PEAK (Java+Native) usedMB=$peakUsedMb across ${timings.size} completed stage(s); " +
                     "lastCompletedStage=$lastCompletedStage"
         )
-        return OmrSmokeTestDiagnosticResult(
+        val result = OmrSmokeTestDiagnosticResult(
             lastCompletedStage = lastCompletedStage,
             stageDurations = timings,
             previews = previews,
@@ -798,6 +1120,16 @@ class OmrSmokeTestRunner @Inject constructor(
             musicXmlOutputPath = musicXmlOutputPath,
             accuracyReport = accuracyReport
         )
+        val isDebuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (!isDebuggable) return result
+        return try {
+            val bundle = OmrDebugBundleWriter.write(context, result)
+            Log.d(TAG, "[OMR_SMOKE] Debug bundle=${bundle.absolutePath}")
+            result.copy(debugBundlePath = bundle.absolutePath)
+        } catch (t: Throwable) {
+            Log.e(TAG, "[OMR_SMOKE] Could not persist debug bundle", t)
+            result
+        }
     }
 
     private fun maskPreviews(masks: OmrClassMasks, prefix: String = ""): List<OmrSmokeTestPreview> {
@@ -833,8 +1165,26 @@ class OmrSmokeTestRunner @Inject constructor(
         "angle" to diagnostics?.angleAcceptedBoxes.orEmpty().size,
         "consolidated" to diagnostics?.consolidatedBoxes.orEmpty().size,
         "minHeight" to diagnostics?.heightAcceptedBoxes.orEmpty().size,
+        "structural" to diagnostics?.structuralBoxes.orEmpty().size,
         "accepted" to diagnostics?.acceptedBoxes.orEmpty().size
     )
+
+    private fun restCandidateFilterCounts(
+        diagnostics: RestExtractionDiagnostics?
+    ): Map<String, Int> {
+        val counts = linkedMapOf(
+            "initial" to diagnostics?.initialBoxes.orEmpty().size,
+            "nearbyMerged" to diagnostics?.nearbyMergedBoxes.orEmpty().size,
+            "overlapFiltered" to diagnostics?.overlapFilteredBoxes.orEmpty().size,
+            "accepted" to diagnostics?.acceptedBoxes.orEmpty().size
+        )
+        diagnostics?.rejectedReasons?.values
+            ?.groupingBy { it }
+            ?.eachCount()
+            ?.toSortedMap()
+            ?.forEach { (reason, count) -> counts["rejected:$reason"] = count }
+        return counts
+    }
 
     private fun durationMs(
         timings: List<OmrSmokeTestStageTiming>,

@@ -22,6 +22,7 @@ import javax.inject.Inject
 sealed interface PreviewRecognitionState {
     data object Idle : PreviewRecognitionState
     data class Running(val progress: OmrProgressUpdate?) : PreviewRecognitionState
+    data object Completed : PreviewRecognitionState
     data class Failed(val message: String) : PreviewRecognitionState
 }
 
@@ -118,9 +119,8 @@ class PreviewViewModel @Inject constructor(
                         }
                     }
                 )
-                scoreRepository.setMusicXmlPath(score.id, result.musicXmlPath)
-                _uiState.update { it.copy(recognition = PreviewRecognitionState.Idle) }
-                eventChannel.send(PreviewEvent.OpenEditor(score.id))
+                scoreRepository.setGeneratedMusicXmlPath(score.id, result.musicXmlPath)
+                _uiState.update { it.copy(recognition = PreviewRecognitionState.Completed) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {

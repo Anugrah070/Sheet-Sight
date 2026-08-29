@@ -20,7 +20,11 @@ class YinPitchDetector(
             energyIndex++
         }
         val rms = sqrt(energy / config.frameSize)
-        if (rms < config.minimumSignalRms) return PitchFrame(null, rms, timestampMillis)
+        // Keep quiet but analyzable frames for the stability filter. That filter combines
+        // confidence, repeated evidence, register, and its ambient-noise estimate before an
+        // onset can advance practice. Cutting them here made soft/legato edge-register notes
+        // impossible to recover on the following frame.
+        if (rms < config.analysisMinimumSignalRms) return PitchFrame(null, rms, timestampMillis)
 
         val minTau = (config.sampleRateHz / config.maximumFrequencyHz).toInt().coerceAtLeast(2)
         val maxTau = (config.sampleRateHz / config.minimumFrequencyHz).toInt()

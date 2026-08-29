@@ -31,6 +31,12 @@ class PitchAndAccidentalsTest {
     }
 
     @Test
+    fun `implausible ledger positions remain unresolved without evidence`() {
+        assertNull(PitchAssigner.assign(-20, SemanticClef.TREBLE))
+        assertNull(PitchAssigner.assign(24, SemanticClef.BASS))
+    }
+
+    @Test
     fun `key signature applies by diatonic step`() {
         val state = MeasureAccidentalState(mapOf(PitchStep.F to AccidentalAlteration.SHARP))
 
@@ -70,4 +76,3 @@ class PitchAndAccidentalsTest {
         assertEquals(octave, pitch?.octave)
     }
 }
-

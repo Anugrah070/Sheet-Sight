@@ -19,6 +19,8 @@ class DeleteScoreUseCase @Inject constructor(
     suspend operator fun invoke(score: Score) {
         scoreRepository.deleteScore(score)
         scoreFileStorage.deleteFile(score.originalFilePath)
-        scoreFileStorage.deleteFile(score.musicXmlPath)
+        linkedSetOf(score.originalMusicXmlPath, score.currentMusicXmlPath).forEach {
+            scoreFileStorage.deleteFile(it)
+        }
     }
 }

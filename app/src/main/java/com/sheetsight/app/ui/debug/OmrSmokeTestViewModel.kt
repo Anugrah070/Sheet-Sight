@@ -1,5 +1,6 @@
 package com.sheetsight.app.ui.debug
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +13,7 @@ import com.sheetsight.app.data.omr.debug.SmokeTestStage
 import com.sheetsight.app.di.IoDispatcher
 import com.sheetsight.app.domain.model.Score
 import com.sheetsight.app.domain.repository.ScoreRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +23,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.CancellationException
+import java.io.File
+import java.io.IOException
 import javax.inject.Inject
 
 /**
@@ -43,7 +47,10 @@ data class OmrSmokeTestUiState(
     val error: String? = null,
     val isSavingMusicXml: Boolean = false,
     val musicXmlSaveMessage: String? = null,
-    val musicXmlSaveError: String? = null
+    val musicXmlSaveError: String? = null,
+    val isSavingDebugBundle: Boolean = false,
+    val debugBundleSaveMessage: String? = null,
+    val debugBundleSaveError: String? = null
 )
 
 @HiltViewModel
@@ -51,6 +58,7 @@ class OmrSmokeTestViewModel @Inject constructor(
     private val scoreRepository: ScoreRepository,
     private val smokeTestRunner: OmrSmokeTestRunner,
     private val scoreFileStorage: ScoreFileStorage,
+    @ApplicationContext private val context: Context,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
@@ -75,7 +83,10 @@ class OmrSmokeTestViewModel @Inject constructor(
                 error = null,
                 isSavingMusicXml = false,
                 musicXmlSaveMessage = null,
-                musicXmlSaveError = null
+                musicXmlSaveError = null,
+                isSavingDebugBundle = false,
+                debugBundleSaveMessage = null,
+                debugBundleSaveError = null
             )
         }
     }
@@ -142,6 +153,49 @@ class OmrSmokeTestViewModel @Inject constructor(
         }
     }
 
+    /** Copies the current debug ZIP from app cache to a developer-selected document. */
+    fun onPersistentDebugBundleTargetSelected(destinationUri: Uri) {
+        val sourcePath = _uiState.value.diagnostic?.debugBundlePath ?: return
+        if (_uiState.value.isSavingDebugBundle) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSavingDebugBundle = true,
+                    debugBundleSaveMessage = null,
+                    debugBundleSaveError = null
+                )
+            }
+            try {
+                val bytes = withContext(ioDispatcher) {
+                    val source = File(sourcePath).canonicalFile
+                    val debugRoot = File(context.cacheDir, "omr-debug").canonicalFile
+                    require(source.parentFile == debugRoot && source.extension.equals("zip", true)) {
+                        "Debug bundle must originate from the app's OMR debug cache"
+                    }
+                    require(source.isFile) { "OMR debug bundle no longer exists" }
+                    val output = context.contentResolver.openOutputStream(destinationUri, "w")
+                        ?: throw IOException("Unable to open the selected debug-bundle destination.")
+                    source.inputStream().use { input ->
+                        output.use { destination -> input.copyTo(destination) }
+                    }
+                }
+                _uiState.update {
+                    it.copy(debugBundleSaveMessage = "Saved OMR debug bundle ($bytes bytes).")
+                }
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _uiState.update {
+                    it.copy(
+                        debugBundleSaveError =
+                            "Could not save debug bundle: ${t.message ?: t::class.java.simpleName}"
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(isSavingDebugBundle = false) }
+            }
+        }
+    }
+
     private fun runSmokeTest(imagePath: String, stopAfter: SmokeTestStage) {
         viewModelScope.launch {
             _uiState.update {
@@ -150,7 +204,9 @@ class OmrSmokeTestViewModel @Inject constructor(
                     error = null,
                     progress = null,
                     musicXmlSaveMessage = null,
-                    musicXmlSaveError = null
+                    musicXmlSaveError = null,
+                    debugBundleSaveMessage = null,
+                    debugBundleSaveError = null
                 )
             }
             try {

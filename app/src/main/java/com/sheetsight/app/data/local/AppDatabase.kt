@@ -18,7 +18,7 @@ import com.sheetsight.app.data.local.entity.ScoreEntity
  */
 @Database(
     entities = [ScoreEntity::class],
-    version = 4,
+    version = 5,
     // TODO: set to true and configure room.schemaLocation in build.gradle.kts
     // once the schema stabilizes further, so migrations can be tested.
     exportSchema = false
@@ -30,4 +30,3 @@ abstract class AppDatabase : RoomDatabase() {
         const val DATABASE_NAME = "sheetsight.db"
     }
 }
-

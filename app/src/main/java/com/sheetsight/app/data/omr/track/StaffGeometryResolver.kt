@@ -2,12 +2,19 @@ package com.sheetsight.app.data.omr.track
 
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /**
  * Port of oemer 0.1.8 `utils.py::find_closest_staffs()`,
  * `get_unit_size()`, and `get_global_unit_size()`.
  */
 object StaffGeometryResolver {
+
+    data class NoteAssignment(
+        val staff: AssignedStaff,
+        val staffLinePosition: Int,
+        val localUnitSize: Double
+    )
 
     /** Returns oemer's direction-aware nearest staff pair for ([x], [y]). */
     fun closestPair(
@@ -37,9 +44,54 @@ object StaffGeometryResolver {
         val firstDistance = abs(y - first.yCenter)
         val secondDistance = abs(y - second.yCenter)
         val totalDistance = firstDistance + secondDistance
-        val firstWeight = firstDistance / totalDistance
-        val secondWeight = secondDistance / totalDistance
+        if (totalDistance == 0.0) return first.staff.unitSize
+        val firstWeight = secondDistance / totalDistance
+        val secondWeight = firstDistance / totalDistance
         return firstWeight * first.staff.unitSize + secondWeight * second.staff.unitSize
+    }
+
+    /**
+     * Assigns a note to one source-system band before choosing a staff. Each
+     * physical staff row is represented by the horizontal-zone segment
+     * nearest [x], and all y comparisons use that segment's interpolated line
+     * geometry. This prevents a nearby segment from another system or a
+     * shifted zone index from owning the note.
+     */
+    fun assignNote(
+        staffGrid: List<List<AssignedStaff>>,
+        x: Int,
+        y: Int
+    ): NoteAssignment {
+        val localStaffs = staffGrid.flatten()
+            .groupBy { it.group to it.track }
+            .values
+            .map { segments -> segments.minBy { horizontalDistance(x, it) } }
+        require(localStaffs.isNotEmpty()) { "staffGrid must contain at least one staff" }
+
+        val systems = localStaffs.groupBy(AssignedStaff::group)
+            .toSortedMap()
+            .map { (group, staffs) ->
+                LocalSystem(group, staffs, staffs.map { localCenterY(it, x) }.average())
+            }
+        val system = systems.minBy { abs(y - it.centerY) }
+        val staff = system.staffs.minBy { abs(y - localCenterY(it, x)) }
+        val unit = localUnitSize(staff, x)
+        val bottomLineY = localLineY(staff.staff.lines.last(), x)
+        return NoteAssignment(
+            staff = staff,
+            staffLinePosition = ((bottomLineY - y) / (unit / 2.0)).roundToInt() + 1,
+            localUnitSize = unit
+        )
+    }
+
+    fun localLineY(line: com.sheetsight.app.data.omr.staffline.Staffline, x: Int): Double =
+        line.yCenter + line.slope * (x - line.xCenter)
+
+    fun localUnitSize(staff: AssignedStaff, x: Int): Double {
+        val lineYs = staff.staff.lines.map { localLineY(it, x) }.sorted()
+        return lineYs.zipWithNext { upper, lower -> lower - upper }.average()
+            .takeIf { it > 0.0 }
+            ?: staff.staff.unitSize
     }
 
     /** Mean staff-space size over the complete aligned grid. */
@@ -63,6 +115,21 @@ object StaffGeometryResolver {
         }
         return first to companion
     }
+
+    private fun localCenterY(staff: AssignedStaff, x: Int): Double =
+        staff.staff.lines.map { localLineY(it, x) }.average()
+
+    private fun horizontalDistance(x: Int, staff: AssignedStaff): Int = when {
+        x < staff.xLeft -> staff.xLeft - x
+        x > staff.xRight -> x - staff.xRight
+        else -> 0
+    }
+
+    private data class LocalSystem(
+        val group: Int,
+        val staffs: List<AssignedStaff>,
+        val centerY: Double
+    )
 }
 
 /** Horizontal center of an assigned staff segment. */

@@ -1,7 +1,5 @@
 package com.sheetsight.app.domain.practice
 
-import com.sheetsight.app.data.audio.NoteOnsetEvidence
-import com.sheetsight.app.data.audio.StablePitchEvent
 import kotlin.math.roundToLong
 
 /** Sole owner of practice timing, advancement, rests, and repeated-note re-arming. */
@@ -13,7 +11,7 @@ class PracticeEngine(
         private set
 
     private var armed = true
-    private var consumedMidi: Int? = null
+    private var consumedMidis: Set<Int> = emptySet()
     private var restEnteredBeat: Double? = null
 
     fun loading(): PracticeProgress = update(
@@ -165,10 +163,16 @@ class PracticeEngine(
             return progress
         }
         if (step.isRest) {
-            if (event is StablePitchEvent.Stable) {
+            val detected = when (event) {
+                is StablePitchEvent.Stable -> event.pitch
+                is StablePitchEvent.NoteGroup -> event.pitches.firstOrNull()
+                is StablePitchEvent.Wrong -> event.pitch
+                else -> null
+            }
+            if (detected != null) {
                 update(
                     progress.copy(
-                        lastDetectedPitch = event.pitch,
+                        lastDetectedPitch = detected,
                         matchState = MatchState.RestViolation,
                         timingOffsetMillis = null,
                         restViolationCount = progress.restViolationCount + 1
@@ -181,7 +185,7 @@ class PracticeEngine(
         when (event) {
             StablePitchEvent.Release -> {
                 armed = true
-                consumedMidi = null
+                consumedMidis = emptySet()
                 update(progress.copy(matchState = MatchState.Waiting, timingOffsetMillis = null))
             }
             is StablePitchEvent.LowConfidence -> update(
@@ -192,6 +196,19 @@ class PracticeEngine(
                 )
             )
             is StablePitchEvent.Stable -> handleStable(event)
+            is StablePitchEvent.NoteGroup -> handleRecognized(
+                pitches = event.pitches,
+                onsetTimestampMillis = event.onsetTimestampMillis,
+                onsetEvidence = event.onsetEvidence,
+                isNewOnset = event.isNewOnset
+            )
+            is StablePitchEvent.Wrong -> update(
+                progress.copy(
+                    lastDetectedPitch = event.pitch,
+                    matchState = MatchState.WrongPitch,
+                    timingOffsetMillis = null
+                )
+            )
         }
         return progress
     }
@@ -208,12 +225,12 @@ class PracticeEngine(
                 advanceOne(
                     result = PracticeMatchResult(MatchState.TieContinuation),
                     onsetBeat = nowBeat,
-                    consumedPitchMidi = tiedMidi
+                    consumedPitchMidis = setOfNotNull(tiedMidi)
                 )
                 // The first untied note after a tie chain must still present a genuine onset.
                 if (progress.currentStep?.tieContinuation != true && progress.currentStep?.isRest != true) {
                     armed = false
-                    consumedMidi = tiedMidi
+                    consumedMidis = setOfNotNull(tiedMidi)
                 }
             }
         } else if (step.isRest) {
@@ -221,7 +238,7 @@ class PracticeEngine(
                 advanceOne(
                     result = PracticeMatchResult(MatchState.Unsupported),
                     onsetBeat = nowBeat,
-                    consumedPitchMidi = null
+                    consumedPitchMidis = emptySet()
                 )
                 return progress
             }
@@ -230,7 +247,7 @@ class PracticeEngine(
                 advanceOne(
                     result = PracticeMatchResult(MatchState.RestComplete),
                     onsetBeat = nowBeat,
-                    consumedPitchMidi = null
+                    consumedPitchMidis = emptySet()
                 )
             }
         } else if (
@@ -243,13 +260,28 @@ class PracticeEngine(
     }
 
     private fun handleStable(event: StablePitchEvent.Stable) {
+        handleRecognized(
+            pitches = listOf(event.pitch),
+            onsetTimestampMillis = event.pitch.timestampMillis,
+            onsetEvidence = event.onsetEvidence,
+            isNewOnset = event.isNewOnset
+        )
+    }
+
+    private fun handleRecognized(
+        pitches: List<DetectedPitch>,
+        onsetTimestampMillis: Long,
+        onsetEvidence: NoteOnsetEvidence,
+        isNewOnset: Boolean
+    ) {
         val step = progress.currentStep ?: return
-        val detected = event.pitch
+        val detected = pitches.first()
+        val observedMidis = pitches.mapTo(linkedSetOf()) { it.nearestPitch.midiNumber }
         if (!armed) {
-            val repeatedExpected = step.expectedPitches.singleOrNull()?.midiNumber == consumedMidi
-            val validRetrigger = repeatedExpected && event.onsetEvidence == NoteOnsetEvidence.AmplitudeRise
-            val differentOnset = !repeatedExpected && event.isNewOnset &&
-                detected.nearestPitch.midiNumber != consumedMidi
+            val expectedMidis = step.expectedPitches.mapTo(linkedSetOf()) { it.midiNumber }
+            val repeatedExpected = expectedMidis == consumedMidis
+            val validRetrigger = repeatedExpected && onsetEvidence == NoteOnsetEvidence.AmplitudeRise
+            val differentOnset = !repeatedExpected && isNewOnset && observedMidis != consumedMidis
             if (!validRetrigger && !differentOnset) {
                 update(
                     progress.copy(
@@ -261,13 +293,13 @@ class PracticeEngine(
                 return
             }
             armed = true
-            consumedMidi = null
+            consumedMidis = emptySet()
         }
 
-        val actualBeat = clock.beatAt(detected.timestampMillis)
-        val result = matcher.match(step, detected, actualBeat, progress.tempo.bpm)
+        val actualBeat = clock.beatAt(onsetTimestampMillis)
+        val result = matcher.match(step, pitches, actualBeat, progress.tempo.bpm)
         if (result.state.advancesPlayableNote) {
-            advanceOne(result, actualBeat, detected.nearestPitch.midiNumber, detected)
+            advanceOne(result, actualBeat, observedMidis, detected)
         } else {
             update(
                 progress.copy(
@@ -282,18 +314,18 @@ class PracticeEngine(
     private fun advanceOne(
         result: PracticeMatchResult,
         onsetBeat: Double,
-        consumedPitchMidi: Int?,
+        consumedPitchMidis: Set<Int>,
         detectedPitch: DetectedPitch? = progress.lastDetectedPitch
     ) {
         val nextIndex = (progress.currentStepIndex + 1).coerceAtMost(progress.totalSteps)
-        armed = consumedPitchMidi == null
-        consumedMidi = consumedPitchMidi
+        armed = consumedPitchMidis.isEmpty()
+        this.consumedMidis = consumedPitchMidis
         restEnteredBeat = null
         val completed = nextIndex == progress.totalSteps
         if (!completed && progress.sequence?.steps?.getOrNull(nextIndex)?.isRest == true) {
             restEnteredBeat = onsetBeat
             armed = true
-            consumedMidi = null
+            this.consumedMidis = emptySet()
         }
         if (completed) clock.pause()
         update(
@@ -310,7 +342,7 @@ class PracticeEngine(
 
     private fun startClockAndListen() {
         armed = true
-        consumedMidi = null
+        consumedMidis = emptySet()
         restEnteredBeat = null
         clock.start(progress.tempo.bpm)
         if (progress.currentStep?.isRest == true) restEnteredBeat = clock.currentBeat()
@@ -327,7 +359,7 @@ class PracticeEngine(
 
     private fun resetRuntime() {
         armed = true
-        consumedMidi = null
+        consumedMidis = emptySet()
         restEnteredBeat = null
         clock.stop()
     }

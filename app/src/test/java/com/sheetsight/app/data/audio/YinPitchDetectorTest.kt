@@ -27,4 +27,17 @@ class YinPitchDetectorTest {
     fun `silence remains unresolved`() {
         assertNull(detector.analyze(FloatArray(config.frameSize), 123L).detectedPitch)
     }
+
+    @Test
+    fun `quiet low and high piano tones remain analyzable for adaptive onset filtering`() {
+        fun detectedMidi(frequency: Double): Int? {
+            val samples = FloatArray(config.frameSize) { index ->
+                (0.004 * sin(2.0 * PI * frequency * index / config.sampleRateHz)).toFloat()
+            }
+            return detector.analyze(samples, 123L).detectedPitch?.nearestPitch?.midiNumber
+        }
+
+        assertEquals(36, detectedMidi(65.406391))
+        assertEquals(88, detectedMidi(1_318.510228))
+    }
 }

@@ -3,6 +3,7 @@ package com.sheetsight.app.data.omr.inference
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.util.Log
+import com.sheetsight.app.data.omr.preprocessing.OmrModelSpec
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,7 +50,21 @@ class OrtSessionProvider @Inject constructor(
         // into the session, so it's safe (and correct — avoids a native
         // handle leak that existed implicitly before this change) to close
         // it immediately after use via `.use { }`.
-        return buildSessionOptions().use { options -> ortEnvironment.createSession(modelBytes, options) }
+        val session = buildSessionOptions().use { options ->
+            ortEnvironment.createSession(modelBytes, options)
+        }
+        if (spec is OmrModelSpec) {
+            val contract = runCatching { OmrModelContractVerifier.verify(session, spec) }
+                .getOrElse { failure ->
+                    session.close()
+                    throw IllegalStateException(
+                        "Loaded ${spec.assetPath}, but its tensor contract is incompatible",
+                        failure
+                    )
+                }
+            Log.i(TAG, "Verified ${spec.name} tensor contract: $contract")
+        }
+        return session
     }
 
     /**
@@ -105,15 +120,19 @@ class OrtSessionProvider @Inject constructor(
         runCatching { options.setCPUArenaAllocator(true) }
             .onFailure { Log.w(TAG, "setCPUArenaAllocator unavailable; using ORT default", it) }
 
-        // NNAPI: opportunistic offload to whatever accelerator (NPU/DSP/
-        // GPU) the device exposes through Android's Neural Networks API.
-        // Registered first so it gets first refusal on op assignment.
-        runCatching { options.addNnapi() }
-            .onFailure { Log.w(TAG, "NNAPI execution provider unavailable; falling back to CPU", it) }
-
-        // XNNPACK: optimized CPU kernels with SIMD multi-threading configured.
-        runCatching { options.addXnnpack(mapOf("intra_op_num_threads" to INTRA_OP_THREAD_COUNT.toString())) }
-            .onFailure { Log.w(TAG, "XNNPACK execution provider unavailable; falling back to CPU", it) }
+        val profile = OmrRuntimeTuning.executionProfile
+        if (profile == OmrExecutionProfile.NNAPI_THEN_XNNPACK || profile == OmrExecutionProfile.NNAPI_ONLY) {
+            runCatching { options.addNnapi() }
+                .onFailure { Log.w(TAG, "NNAPI unavailable for $profile; falling back", it) }
+        }
+        if (profile == OmrExecutionProfile.NNAPI_THEN_XNNPACK || profile == OmrExecutionProfile.XNNPACK_ONLY) {
+            runCatching {
+                options.addXnnpack(
+                    mapOf("intra_op_num_threads" to INTRA_OP_THREAD_COUNT.toString())
+                )
+            }.onFailure { Log.w(TAG, "XNNPACK unavailable for $profile; falling back", it) }
+        }
+        Log.i(TAG, "Creating OMR session with execution profile=$profile")
 
         return options
     }

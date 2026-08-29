@@ -85,6 +85,26 @@ internal object OmrSmokeTestBitmaps {
         return thumbnail
     }
 
+    /** Renders a discrete model argmax map with a stable color per output channel. */
+    fun classMapToThumbnail(
+        classes: IntArray,
+        width: Int,
+        height: Int,
+        colors: IntArray,
+        maxDimension: Int = DEFAULT_MAX_DIMENSION
+    ): Bitmap {
+        require(classes.size == width * height)
+        require(colors.isNotEmpty())
+        val full = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(classes.size) { index ->
+            colors.getOrElse(classes[index]) { 0xFFFF00FF.toInt() }
+        }
+        full.setPixels(pixels, 0, width, 0, 0, width, height)
+        val thumbnail = thumbnailOf(full, maxDimension)
+        full.recycle()
+        return thumbnail
+    }
+
     /** Renders all five [OmrClassMasks] layers as [OmrSmokeTestMaskThumbnails]. */
     fun masksToThumbnails(masks: OmrClassMasks, maxDimension: Int = DEFAULT_MAX_DIMENSION): OmrSmokeTestMaskThumbnails =
         OmrSmokeTestMaskThumbnails(

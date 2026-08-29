@@ -26,7 +26,6 @@ data class ArticulationTrackingConfig(
     val noiseFloorMultiplier: Double = 2.2,
     val noiseFloorSmoothing: Double = 0.08,
     val decayingEnergyRatio: Double = 0.36,
-    val strongEnergyRatio: Double = 0.58,
     val tooShortRatio: Double = 0.55,
     val approximateToleranceRatio: Double = 0.35,
     val longToleranceRatio: Double = 0.45,
@@ -40,7 +39,7 @@ data class ArticulationTrackingConfig(
         require(targetDropoutToleranceMillis >= 0L)
         require(targetLossDebounceMillis > 0L && silenceDebounceMillis > 0L)
         require(noiseFloorSmoothing in 0.0..1.0)
-        require(decayingEnergyRatio in 0.0..1.0 && strongEnergyRatio in decayingEnergyRatio..1.0)
+        require(decayingEnergyRatio in 0.0..1.0)
         require(tooShortRatio in 0.0..1.0)
         require(maximumObservationRatio > 1.0)
     }
@@ -52,12 +51,33 @@ data class ArticulationTrackerUpdate(
 )
 
 /**
+ * Derived release evidence exposed only when a developer validation observer is installed.
+ * No PCM or waveform samples are included.
+ */
+data class AcousticReleaseFrameDiagnostic(
+    val stepIndex: Int,
+    val pitch: PracticePitch,
+    val timestampMillis: Long,
+    val targetPitchConfidence: Double?,
+    val targetPitchPresent: Boolean,
+    val signalLevel: Double,
+    val releaseThreshold: Double,
+    val residualEnergyPresent: Boolean,
+    val sustainState: SustainState
+)
+
+fun interface AcousticReleaseDiagnosticObserver {
+    fun onReleaseFrame(diagnostic: AcousticReleaseFrameDiagnostic)
+}
+
+/**
  * Cheap stateful analysis layered over the existing YIN/RMS frame stream.
  * It retains only bounded event summaries and never stores PCM.
  */
 class AcousticNoteEventTracker(
     private val config: ArticulationTrackingConfig = ArticulationTrackingConfig(),
-    private val pitchConfig: PitchDetectionConfig = PitchDetectionConfig()
+    private val pitchConfig: PitchDetectionConfig = PitchDetectionConfig(),
+    private val diagnosticObserver: AcousticReleaseDiagnosticObserver? = null
 ) {
     private val active = mutableListOf<TrackedEvent>()
     private val recent = ArrayDeque<DurationResult>()
@@ -175,7 +195,6 @@ class AcousticNoteEventTracker(
                 tracked.lastActive = now
                 tracked.targetLostSince = null
                 tracked.quietSince = null
-                tracked.strongTargetFrames++
                 tracked.state = if (
                     tracked.peakEnergy > 0.0 && frame.signalLevel < tracked.peakEnergy * config.decayingEnergyRatio
                 ) SustainState.Decaying else SustainState.Active
@@ -188,6 +207,22 @@ class AcousticNoteEventTracker(
                 tracked.state = SustainState.Decaying
                 if (energyPresent) tracked.quietSince = null else if (tracked.quietSince == null) tracked.quietSince = now
             }
+
+            diagnosticObserver?.onReleaseFrame(
+                AcousticReleaseFrameDiagnostic(
+                    stepIndex = tracked.step.index,
+                    pitch = tracked.pitch,
+                    timestampMillis = now,
+                    targetPitchConfidence = frame.detectedPitch
+                        ?.takeIf { it.nearestPitch.midiNumber == tracked.pitch.midiNumber }
+                        ?.confidence,
+                    targetPitchPresent = targetPresent,
+                    signalLevel = frame.signalLevel,
+                    releaseThreshold = releaseThreshold,
+                    residualEnergyPresent = !targetPresent && energyPresent,
+                    sustainState = tracked.state
+                )
+            )
 
             val replacement = tracked.replacementOnset
             val transitioned = replacement != null && !targetPresent && now - replacement >= config.transitionDebounceMillis
@@ -250,13 +285,13 @@ class AcousticNoteEventTracker(
         confidence: Double
     ): DurationResult {
         val observedMillis = (releaseTime - tracked.onset).coerceAtLeast(0L)
-        val strongSustainedEvidence = tracked.peakEnergy > 0.0 &&
-            tracked.lastSignalLevel >= tracked.peakEnergy * config.strongEnergyRatio &&
-            tracked.targetPitchEvidence
         val sustainAmbiguous = when (cause) {
             AcousticReleaseCause.ReplacedByNewOnset -> tracked.residualEnergy &&
                 observedMillis > (tracked.expected?.milliseconds ?: Long.MAX_VALUE) + config.minimumAbsoluteToleranceMillis
-            AcousticReleaseCause.ObservationLimit -> !strongSustainedEvidence || tracked.newOnsetsPresent
+            // Reaching a hard observation limit while sound persists cannot distinguish a held
+            // key from pedal/resonance. Never convert that missing release evidence into a
+            // confident Long judgment.
+            AcousticReleaseCause.ObservationLimit -> true
             AcousticReleaseCause.SustainedSilence -> tracked.newOnsetsPresent && tracked.residualEnergy
         }
         val observed = ObservedNoteEvent(
@@ -292,7 +327,6 @@ class AcousticNoteEventTracker(
     }
 
     private fun updateNoiseFloor(frame: PitchFrame) {
-        active.forEach { it.lastSignalLevel = frame.signalLevel }
         if (frame.detectedPitch != null || frame.signalLevel >= pitchConfig.minimumSignalRms) return
         noiseFloorRms += (frame.signalLevel - noiseFloorRms) * config.noiseFloorSmoothing
     }
@@ -318,8 +352,6 @@ class AcousticNoteEventTracker(
         var replacementOnset: Long? = null,
         var replacementMidi: Int? = null,
         var peakEnergy: Double = 0.0,
-        var lastSignalLevel: Double = 0.0,
-        var strongTargetFrames: Int = 0,
         var residualEnergy: Boolean = false,
         var targetPitchEvidence: Boolean = true,
         var newOnsetsPresent: Boolean = false,

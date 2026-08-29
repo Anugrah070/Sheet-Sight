@@ -28,6 +28,18 @@ class CanonicalImageResizerTest {
         assertEquals(sourceRatio, targetRatio, 0.001)
     }
 
+    @Test
+    fun `high-detail evaluation profile stays inside trained range`() {
+        val target = CanonicalImageResizer.computeTargetSize(
+            sourceWidth = 1700,
+            sourceHeight = 2200,
+            targetPixels = CanonicalImageResizer.TARGET_PIXELS_UPPER_BOUND
+        )
+
+        val pixelCount = target.width.toLong() * target.height.toLong()
+        assertTrue(pixelCount in 4_340_000..4_360_000)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `non-positive dimensions are rejected`() {
         CanonicalImageResizer.computeTargetSize(sourceWidth = 0, sourceHeight = 100)

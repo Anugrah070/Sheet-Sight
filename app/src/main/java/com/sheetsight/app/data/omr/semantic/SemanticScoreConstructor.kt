@@ -13,6 +13,7 @@ import com.sheetsight.app.data.omr.symbol.ClefSymbolLabel
 import com.sheetsight.app.data.omr.symbol.MusicalBarlineCandidate
 import com.sheetsight.app.data.omr.symbol.SymbolExtractionResult
 import com.sheetsight.app.data.omr.track.AssignedStaff
+import com.sheetsight.app.data.omr.track.StaffGeometryResolver
 import com.sheetsight.app.data.omr.track.BoundingBox
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -83,7 +84,10 @@ object SemanticScoreConstructor {
             val boundaries = MeasureConstructor.construct(
                 measureBounds.left,
                 measureBounds.right,
-                groupBarlines.map { DetectedMeasureBarline(it.x, it.source) }
+                groupBarlines.map {
+                    DetectedMeasureBarline(it.x, it.source, it.candidate.confidence)
+                },
+                xTolerance = groupSegments.map { it.staff.unitSize }.average() * BARLINE_X_TOLERANCE_UNITS
             )
             val emptyMeasures = boundaries.map {
                 SemanticMeasure(
@@ -354,11 +358,12 @@ object SemanticScoreConstructor {
         track: Int,
         segments: List<AssignedStaff>
     ): Int {
-        val staff = segments.filter { it.track == track }.minBy { assigned ->
-            abs(assigned.staff.lines.map { it.xCenter }.average() - x)
-        }.staff
-        val bottomLineY = staff.lines.maxOf { it.yCenter }
-        return ((bottomLineY - y) / (staff.unitSize / 2.0)).roundToInt() + 1
+        val assignment = StaffGeometryResolver.assignNote(
+            staffGrid = listOf(segments.filter { it.track == track }),
+            x = x,
+            y = y
+        )
+        return assignment.staffLinePosition
     }
 
     private fun boundsOf(segments: List<AssignedStaff>): SemanticBounds = SemanticBounds(
@@ -437,6 +442,8 @@ object SemanticScoreConstructor {
         val x: Int,
         val accidentals: List<SourcedAccidental>
     )
+
+    private const val BARLINE_X_TOLERANCE_UNITS = 0.35
 }
 
 data class SemanticScoreSummary(

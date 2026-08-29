@@ -2,6 +2,7 @@ package com.sheetsight.app.data.practice
 
 import com.sheetsight.app.data.omr.musicxml.MusicXmlNotationParser
 import com.sheetsight.app.data.omr.musicxml.MusicXmlParser
+import com.sheetsight.app.data.omr.musicxml.MusicXmlTextDecoder
 import com.sheetsight.app.domain.practice.PracticeSequence
 import com.sheetsight.app.ui.editor.notation.NotationDocument
 import com.sheetsight.app.ui.editor.notation.NotationLayoutEngine
@@ -23,12 +24,14 @@ class PracticeMusicXmlLoader @Inject constructor() {
                 detectedTempoBpm = parsed.detectedTempoBpm,
                 durationSemanticsReliable = durationSemanticsReliable
             ),
-            notation = NotationLayoutEngine.layout(parsed)
+            notation = NotationLayoutEngine.layout(parsed),
+            musicXml = MusicXmlTextDecoder.decode(bytes)
         )
     }
 }
 
 data class LoadedPracticeScore(
     val sequence: PracticeSequence,
-    val notation: NotationDocument
+    val notation: NotationDocument,
+    val musicXml: String
 )

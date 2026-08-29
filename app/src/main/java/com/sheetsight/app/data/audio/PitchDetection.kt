@@ -9,8 +9,14 @@ data class PitchDetectionConfig(
     val hopSize: Int = 1_024,
     val minimumFrequencyHz: Double = 27.5,
     val maximumFrequencyHz: Double = 4_186.01,
-    val minimumSignalRms: Double = 0.0045,
-    val releaseSignalRms: Double = 0.003,
+    /** Cheap detector floor. Final onset acceptance uses the adaptive gate below. */
+    val analysisMinimumSignalRms: Double = 0.0020,
+    val minimumSignalRms: Double = 0.0032,
+    val releaseSignalRms: Double = 0.0024,
+    val onsetNoiseMultiplier: Double = 2.0,
+    val onsetNoiseSmoothing: Double = 0.08,
+    /** Piano bass and treble attacks are commonly quieter at the phone than the middle register. */
+    val edgeRegisterSignalRatio: Double = 0.85,
     val yinThreshold: Double = 0.20,
     val minimumConfidence: Double = 0.72,
     val stableFrameCount: Int = 2,
@@ -25,7 +31,10 @@ data class PitchDetectionConfig(
     init {
         require(frameSize > 0 && hopSize in 1..frameSize)
         require(minimumFrequencyHz > 0 && maximumFrequencyHz > minimumFrequencyHz)
+        require(analysisMinimumSignalRms in 0.0..releaseSignalRms)
         require(releaseSignalRms in 0.0..minimumSignalRms)
+        require(onsetNoiseMultiplier > 1.0 && onsetNoiseSmoothing in 0.0..1.0)
+        require(edgeRegisterSignalRatio in 0.0..1.0)
         require(stableFrameCount > 0 && releaseFrameCount > 0)
         require(amplitudeRiseRatio > 1.0 && minimumAmplitudeRise >= 0.0)
     }
@@ -36,16 +45,3 @@ data class PitchFrame(
     val signalLevel: Double,
     val timestampMillis: Long
 )
-
-sealed interface StablePitchEvent {
-    data class Stable(
-        val pitch: DetectedPitch,
-        val onsetEvidence: NoteOnsetEvidence = NoteOnsetEvidence.InitialAttack
-    ) : StablePitchEvent {
-        val isNewOnset: Boolean get() = onsetEvidence != NoteOnsetEvidence.None
-    }
-    data object Release : StablePitchEvent
-    data class LowConfidence(val pitch: DetectedPitch?) : StablePitchEvent
-}
-
-enum class NoteOnsetEvidence { None, InitialAttack, AfterRelease, AmplitudeRise, PitchTransition }

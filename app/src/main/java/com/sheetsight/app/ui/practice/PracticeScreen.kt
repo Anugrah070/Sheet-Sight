@@ -72,6 +72,7 @@ import com.sheetsight.app.domain.practice.MIN_PRACTICE_BPM
 import com.sheetsight.app.domain.practice.MatchState
 import com.sheetsight.app.domain.practice.PracticePhase
 import com.sheetsight.app.domain.practice.PracticeTempoSource
+import com.sheetsight.app.ui.common.LandscapeFirstEffect
 import kotlin.math.roundToInt
 
 private val PracticeChrome = Color(0xFF10131D)
@@ -83,6 +84,7 @@ fun PracticeScreen(
     modifier: Modifier = Modifier,
     viewModel: PracticeViewModel = hiltViewModel()
 ) {
+    LandscapeFirstEffect()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -179,11 +181,20 @@ fun PracticeScreenContent(
                         onCalibrateRelease = onCalibrateRelease
                     )
                     state.notation?.let { notation ->
-                        PracticeScoreViewport(
-                            document = notation,
-                            state = state,
-                            modifier = Modifier.fillMaxWidth().weight(1f)
-                        )
+                        if (state.musicXml != null) {
+                            PracticeEngravedScoreView(
+                                musicXml = state.musicXml,
+                                document = notation,
+                                state = state,
+                                modifier = Modifier.fillMaxWidth().weight(1f)
+                            )
+                        } else {
+                            PracticeScoreViewport(
+                                document = notation,
+                                state = state,
+                                modifier = Modifier.fillMaxWidth().weight(1f)
+                            )
+                        }
                     } ?: PracticeMessage(
                         stringResource(R.string.practice_score_unavailable),
                         Modifier.fillMaxWidth().weight(1f)
@@ -296,7 +307,9 @@ private fun PracticeHeader(
     var settingsExpanded by remember { mutableStateOf(false) }
     Surface(color = PracticeChrome, shadowElevation = 5.dp) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val compact = maxWidth < 700.dp
+            // Navigation chrome can leave landscape phones with a narrow content pane.
+            // Keep the two-row header until tablet widths so the score retains height.
+            val compact = maxWidth < 900.dp
             if (compact) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp)) {
                     Row(
@@ -457,7 +470,14 @@ private fun HeaderValue(
     accent: Boolean = false
 ) {
     Column(modifier) {
-        Text(label.uppercase(), color = PracticeChromeMuted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = label.uppercase(),
+            color = PracticeChromeMuted,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false
+        )
         Text(
             value,
             color = if (accent) PracticeAccent else Color.White,

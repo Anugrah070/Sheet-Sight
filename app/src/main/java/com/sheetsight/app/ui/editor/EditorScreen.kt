@@ -106,8 +106,7 @@ fun EditorScreen(
         onRetry = viewModel::retry,
         onRenderError = viewModel::onRenderError,
         onSelectionChanged = viewModel::onSelectionChanged,
-        onNoteDown = { viewModel.moveSelectedNote(NaturalNoteDirection.DOWN) },
-        onNoteUp = { viewModel.moveSelectedNote(NaturalNoteDirection.UP) },
+        onNoteDragBy = viewModel::moveSelectedNoteBy,
         onSystemChanged = viewModel::onSystemChanged,
         onZoomChanged = viewModel::onZoomChanged,
         onBack = onBack
@@ -139,8 +138,7 @@ fun EditorScreenContent(
     onRetry: () -> Unit = {},
     onRenderError: (EditorSourceKey, String) -> Unit = { _, _ -> },
     onSelectionChanged: (EditorSelection?) -> Unit = {},
-    onNoteDown: () -> Unit = {},
-    onNoteUp: () -> Unit = {},
+    onNoteDragBy: (Int) -> Unit = {},
     onSystemChanged: (Int) -> Unit = {},
     onZoomChanged: (Float) -> Unit = {},
     onBack: () -> Unit = {}
@@ -265,8 +263,7 @@ fun EditorScreenContent(
                     onSelectionChanged = onSelectionChanged,
                     noteEditInProgress = noteEditInProgress,
                     pitchVisualUpdate = pitchVisualUpdate,
-                    onNoteDown = onNoteDown,
-                    onNoteUp = onNoteUp,
+                    onNoteDragBy = onNoteDragBy,
                     onZoomGestureFinished = { gestureScale ->
                         scale = gestureScale.coerceIn(EditorViewModel.MIN_ZOOM, EditorViewModel.MAX_ZOOM)
                         onZoomChanged(scale)
@@ -554,8 +551,7 @@ private fun ReadyScore(
     onSelectionChanged: (EditorSelection?) -> Unit,
     noteEditInProgress: Boolean,
     pitchVisualUpdate: EditorPitchVisualUpdate?,
-    onNoteDown: () -> Unit,
-    onNoteUp: () -> Unit,
+    onNoteDragBy: (Int) -> Unit,
     onZoomGestureFinished: (Float) -> Unit
 ) {
     var importedScore by remember(ready.renderSessionKey) { mutableStateOf<ImportedAlphaTabScore?>(null) }
@@ -605,13 +601,6 @@ private fun ReadyScore(
             }
         )
 
-        SelectedNotePitchControls(
-            visible = selection is EditorSelection.NoteSelection,
-            editing = noteEditInProgress,
-            onNoteDown = onNoteDown,
-            onNoteUp = onNoteUp
-        )
-
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             AlphaTabScoreView(
                 sourceKey = ready.renderSessionKey,
@@ -644,11 +633,32 @@ private fun ReadyScore(
                     }
                 },
                 onZoomGestureFinished = onZoomGestureFinished,
+                onNoteDragBy = onNoteDragBy,
                 onAlphaTabScoreLoaded = { loaded ->
                     importedScore = loaded
                 },
                 modifier = Modifier.fillMaxSize()
             )
+
+            if (noteEditInProgress) {
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).testTag("editor_pitch_saving")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Saving",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
+                    }
+                }
+            }
 
             importedScore?.let { score ->
                 key(ready.renderSessionKey, playbackGeneration) {
@@ -679,45 +689,6 @@ private fun ReadyScore(
                         }
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SelectedNotePitchControls(
-    visible: Boolean,
-    editing: Boolean,
-    onNoteDown: () -> Unit,
-    onNoteUp: () -> Unit
-) {
-    if (!visible) return
-    Surface(tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth().testTag("editor_pitch_controls")) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End
-        ) {
-            Text(
-                text = "Selected note",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 6.dp)
-            )
-            if (editing) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp).testTag("editor_pitch_editing"), strokeWidth = 2.dp)
-            }
-            IconButton(
-                onClick = onNoteDown,
-                modifier = Modifier.size(36.dp).testTag("editor_pitch_down")
-            ) {
-                Icon(Icons.Default.Remove, contentDescription = "Note Down")
-            }
-            IconButton(
-                onClick = onNoteUp,
-                modifier = Modifier.size(36.dp).testTag("editor_pitch_up")
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Note Up")
             }
         }
     }

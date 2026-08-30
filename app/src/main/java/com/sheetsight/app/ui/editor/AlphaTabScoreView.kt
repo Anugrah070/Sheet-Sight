@@ -65,6 +65,7 @@ internal fun AlphaTabScoreView(
     selection: AlphaTabRenderSelection? = null,
     pitchVisualUpdate: AlphaTabPitchVisualUpdate? = null,
     onSelectionHit: (AlphaTabSelectionHit) -> Unit = {},
+    onNoteDragBy: (Int) -> Unit = {},
     onZoomGestureFinished: (Float) -> Unit = {},
     cursorStepIndex: Int? = null,
     modifier: Modifier = Modifier
@@ -181,6 +182,7 @@ internal fun AlphaTabScoreView(
                             selection = selection,
                             pitchVisualUpdate = pitchVisualUpdate,
                             onSelectionHit = onSelectionHit,
+                            onNoteDragBy = onNoteDragBy,
                             onZoomGestureFinished = onZoomGestureFinished
                         )
                     },

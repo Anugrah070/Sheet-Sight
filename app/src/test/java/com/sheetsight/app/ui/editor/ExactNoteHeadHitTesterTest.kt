@@ -1,7 +1,10 @@
 package com.sheetsight.app.ui.editor
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExactNoteHeadHitTesterTest {
@@ -68,6 +71,92 @@ class ExactNoteHeadHitTesterTest {
         val lowPoint = requireNotNull(ExactNoteHeadHitTester.findUniquePoint(low, nearlyCovered))
         assertSame(low, ExactNoteHeadHitTester.findUnique(lowPoint.x, lowPoint.y, nearlyCovered))
         assertNull(ExactNoteHeadHitTester.findUniquePoint(high, nearlyCovered))
+    }
+
+    @Test
+    fun accessibleNoteTargetsSelectNearAHeadWithoutTurningTheWholeStaffIntoAHitArea() {
+        assertSame(
+            lower,
+            AccessibleNoteHeadHitTester.findNearestUnique(
+                x = 14.0,
+                y = 28.0,
+                bounds = bounds,
+                minimumTargetSize = 18.0
+            )
+        )
+        assertNull(
+            AccessibleNoteHeadHitTester.findNearestUnique(
+                x = 30.0,
+                y = 23.0,
+                bounds = bounds,
+                minimumTargetSize = 18.0
+            )
+        )
+    }
+
+    @Test
+    fun accessibleOverlappingHeadsChooseTheNearestCenterButRejectAUnisonTie() {
+        val left = Any()
+        val right = Any()
+        val overlapping = listOf(
+            ExactNoteHeadBounds(left, 10.0, 10.0, 8.0, 6.0),
+            ExactNoteHeadBounds(right, 16.0, 10.0, 8.0, 6.0)
+        )
+
+        assertSame(left, AccessibleNoteHeadHitTester.findNearestUnique(15.0, 13.0, overlapping, 18.0))
+        assertSame(right, AccessibleNoteHeadHitTester.findNearestUnique(19.0, 13.0, overlapping, 18.0))
+
+        val unison = Any()
+        assertNull(
+            AccessibleNoteHeadHitTester.findNearestUnique(
+                14.0,
+                13.0,
+                bounds = listOf(
+                    ExactNoteHeadBounds(left, 10.0, 10.0, 8.0, 6.0),
+                    ExactNoteHeadBounds(unison, 10.0, 10.0, 8.0, 6.0)
+                )
+            )
+        )
+    }
+
+    @Test
+    fun selectionPointerIsCenteredBelowTheSelectedNoteHead() {
+        assertEquals(
+            SelectionPointerAnchor(centerX = 14.0, tipY = 29.0),
+            SelectionPointerGeometry.below(
+                RendererRect(x = 10.0, y = 20.0, width = 8.0, height = 6.0),
+                gap = 3.0
+            )
+        )
+        assertNull(
+            SelectionPointerGeometry.below(
+                RendererRect(x = Double.NaN, y = 20.0, width = 8.0, height = 6.0)
+            )
+        )
+    }
+
+    @Test
+    fun enlargedSelectionPointerIsDraggableAcrossItsWholeVisibleBody() {
+        val anchor = SelectionPointerAnchor(centerX = 50.0, tipY = 70.0)
+
+        assertTrue(
+            SelectionPointerHitTester.contains(
+                anchor, x = 50.0, y = 84.9,
+                halfWidth = 18.0, height = 15.0, topPadding = 8.0, bottomPadding = 10.0
+            )
+        )
+        assertTrue(
+            SelectionPointerHitTester.contains(
+                anchor, x = 67.9, y = 70.0,
+                halfWidth = 18.0, height = 15.0, topPadding = 8.0, bottomPadding = 10.0
+            )
+        )
+        assertFalse(
+            SelectionPointerHitTester.contains(
+                anchor, x = 69.0, y = 70.0,
+                halfWidth = 18.0, height = 15.0, topPadding = 8.0, bottomPadding = 10.0
+            )
+        )
     }
 
     @Test

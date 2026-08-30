@@ -25,6 +25,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -93,6 +94,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
     private var selection: AlphaTabRenderSelection? = null
     private var selectedElementStyle: SelectedElementStyle? = null
     private var onSelectionHit: (AlphaTabSelectionHit) -> Unit = {}
+    private var onNoteDragBy: (Int) -> Unit = {}
     private var onZoomGestureFinished: (Float) -> Unit = {}
     private var authoritativeZoom = 1f
     private var gestureStartZoom = 1f
@@ -139,7 +141,10 @@ internal class StableAlphaTabView @JvmOverloads constructor(
             viewportX = focusX,
             viewportY = focusY,
             fromZoom = authoritativeZoom,
-            toZoom = authoritativeZoom
+            toZoom = authoritativeZoom,
+            note = zoomAnchorNote(contentX, contentY),
+            horizontalProgress = currentHorizontalScrollProgress(),
+            verticalProgress = currentScrollProgress()
         )
         lastPinchLatencyMillis = null
         lastPinchAuthoritativeRenderCount = 0
@@ -184,6 +189,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
             }.toSet()
         }
     internal val selectionBorderRendered: Boolean get() = false
+    internal val selectionPointerRendered: Boolean get() = surface.selectionPointerRendered
     internal var alphaTabInitCount: Int = 0
         private set
     internal var scoreLoadCount: Int = 0
@@ -207,9 +213,27 @@ internal class StableAlphaTabView @JvmOverloads constructor(
     internal val currentZoomForTest: Float get() = authoritativeZoom
     internal val viewportCenterScorePointForTest: ExactHitPoint
         get() = ExactHitPoint(
-            horizontalScroll.scrollX + width / 2.0,
-            (verticalScroll.scrollY + height / 2.0) / authoritativeZoom
+            (horizontalScroll.scrollX + width / 2.0) / density,
+            (verticalScroll.scrollY + height / 2.0) / density
         )
+    internal val selectedNoteViewportPointForTest: ExactHitPoint?
+        get() {
+            val note = (selection as? AlphaTabRenderSelection.NoteSelection)?.note ?: return null
+            val bounds = preferredNoteHeadBounds(note) ?: return null
+            return ExactHitPoint(
+                bounds.x * density + bounds.w * density / 2.0 - horizontalScroll.scrollX,
+                bounds.y * density + bounds.h * density / 2.0 - verticalScroll.scrollY
+            )
+        }
+    internal val selectionPointerAlignmentErrorForTest: ExactHitPoint?
+        get() {
+            val note = (selection as? AlphaTabRenderSelection.NoteSelection)?.note ?: return null
+            val bounds = preferredNoteHeadBounds(note) ?: return null
+            val pointer = surface.selectionPointerForTest ?: return null
+            val expected = SelectionPointerGeometry.below(RendererRect(bounds.x, bounds.y, bounds.w, bounds.h))
+                ?: return null
+            return ExactHitPoint(pointer.centerX - expected.centerX, pointer.tipY - expected.tipY)
+        }
     internal var lastPinchLatencyMillis: Long? = null
         private set
     internal var lastPinchAuthoritativeRenderCount: Int = 0
@@ -242,6 +266,15 @@ internal class StableAlphaTabView @JvmOverloads constructor(
                 EditorHitTestCoordinates.toRenderer(x, density),
                 EditorHitTestCoordinates.toRenderer(y, density)
             )
+        }
+        surface.onNoteDragStart = { x, y ->
+            beginNoteDrag(
+                EditorHitTestCoordinates.toRenderer(x, density),
+                EditorHitTestCoordinates.toRenderer(y, density)
+            )
+        }
+        surface.onNoteDragFinished = { diatonicOffset ->
+            if (diatonicOffset != 0) onNoteDragBy(diatonicOffset)
         }
 
         verticalScroll.setOnScrollChangeListener { _, _, scrollY, _, _ ->
@@ -300,6 +333,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         selection: AlphaTabRenderSelection?,
         pitchVisualUpdate: AlphaTabPitchVisualUpdate?,
         onSelectionHit: (AlphaTabSelectionHit) -> Unit,
+        onNoteDragBy: (Int) -> Unit,
         onZoomGestureFinished: (Float) -> Unit = {}
     ) {
         if (released) return
@@ -310,9 +344,14 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         val mappingChanged = this.identityMapping !== identityMapping
         this.identityMapping = identityMapping
         val selectionChanged = selection != this.selection
-        val selectionAffected = if (selectionChanged) applySelectionStyle(selection) else emptySet()
+        if (selectionChanged) {
+            selectedElementStyle?.restore()
+            selectedElementStyle = null
+        }
         this.selection = selection
+        updateSelectionPointer()
         this.onSelectionHit = onSelectionHit
+        this.onNoteDragBy = onNoteDragBy
         this.initialSystemIndex = initialSystemIndex.coerceAtLeast(0)
         this.systemCount = systemCount.coerceAtLeast(1)
         val pitchAffected = applyPitchVisualUpdate(pitchVisualUpdate)
@@ -321,7 +360,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         authoritativeZoom = safeZoom
         val nextKey = 31 * System.identityHashCode(score) + safeZoom.toBits()
         if (renderKey == nextKey && this.score === score) {
-            refreshSystems(selectionAffected + pitchAffected.map { it.beat.voice.bar.masterBar.index })
+            refreshSystems(pitchAffected.map { it.beat.voice.bar.masterBar.index }.toSet())
             if (mappingChanged) renderer?.boundsLookup?.takeIf { it.isFinished }?.let(::diagnoseVisibleElements)
             return
         }
@@ -413,6 +452,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
                         if (!released && renderer === scoreRenderer) {
                             surface.commitReplacement(density)
                             surface.removeRendererAnnotation()
+                            updateSelectionPointer()
                             restoreReadingPosition()
                             scoreRenderer.boundsLookup?.let(::diagnoseVisibleElements)
                             Log.d(
@@ -478,23 +518,79 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         }
     }
 
+    private fun currentHorizontalScrollProgress(): Float {
+        val range = (surface.measuredWidth - horizontalScroll.width).coerceAtLeast(0)
+        return if (range > 0) {
+            (horizontalScroll.scrollX.toFloat() / range.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+    }
+
+    private fun zoomAnchorNote(contentX: Float, contentY: Float): ZoomNoteAnchor? {
+        val lookup = renderer?.boundsLookup?.takeIf { it.isFinished } ?: return null
+        val selected = (selection as? AlphaTabRenderSelection.NoteSelection)?.note
+        val selectedBounds = selected?.let(::preferredNoteHeadBounds)
+            ?.takeIf { bounds ->
+                val centerX = bounds.x * density + bounds.w * density / 2.0
+                val centerY = bounds.y * density + bounds.h * density / 2.0
+                centerX in horizontalScroll.scrollX.toDouble()..(horizontalScroll.scrollX + width).toDouble() &&
+                    centerY in verticalScroll.scrollY.toDouble()..(verticalScroll.scrollY + height).toDouble()
+            }
+        val target = if (selected != null && selectedBounds != null) {
+            selected to selectedBounds
+        } else {
+            val rendererX = contentX / density
+            val rendererY = contentY / density
+            allNoteHeadBounds(lookup).minByOrNull { candidate ->
+                val dx = rendererX - (candidate.x + candidate.width / 2.0)
+                val dy = rendererY - (candidate.y + candidate.height / 2.0)
+                dx * dx + dy * dy
+            }?.let { it.note to noteHeadBounds(lookup, it.note).firstOrNull { bounds ->
+                bounds.x.isFinite() && bounds.y.isFinite() && bounds.w > 0.0 && bounds.h > 0.0
+            } } ?: return null
+        }
+        val bounds = target.second ?: return null
+        return ZoomNoteAnchor(
+            note = target.first,
+            viewportX = (bounds.x * density + bounds.w * density / 2.0 - horizontalScroll.scrollX).toFloat(),
+            viewportY = (bounds.y * density + bounds.h * density / 2.0 - verticalScroll.scrollY).toFloat()
+        )
+    }
+
     private fun restoreReadingPosition() {
         val zoomAnchor = pendingZoomAnchor
         if (zoomAnchor != null) {
             pendingZoomAnchor = null
             surface.post {
-                val factor = zoomAnchor.toZoom / zoomAnchor.fromZoom
-                val targetX = (zoomAnchor.contentX * factor - zoomAnchor.viewportX).roundToInt()
-                    .coerceIn(0, (surface.measuredWidth - horizontalScroll.width).coerceAtLeast(0))
-                val targetY = (zoomAnchor.contentY * factor - zoomAnchor.viewportY).roundToInt()
-                    .coerceIn(0, (surface.measuredHeight - verticalScroll.height).coerceAtLeast(0))
+                val horizontalRange = (surface.measuredWidth - horizontalScroll.width).coerceAtLeast(0)
+                val verticalRange = (surface.measuredHeight - verticalScroll.height).coerceAtLeast(0)
+                val noteAnchor = zoomAnchor.note
+                val newAnchorBounds = noteAnchor?.note?.let(::preferredNoteHeadBounds)
+                val anchoredX = noteAnchor?.let { anchor ->
+                    newAnchorBounds?.let { bounds ->
+                        (bounds.x * density + bounds.w * density / 2.0 - anchor.viewportX).roundToInt()
+                    }
+                }
+                val anchoredY = noteAnchor?.let { anchor ->
+                    newAnchorBounds?.let { bounds ->
+                        (bounds.y * density + bounds.h * density / 2.0 - anchor.viewportY).roundToInt()
+                    }
+                }
+                val targetX = (anchoredX ?: run {
+                    (horizontalRange * zoomAnchor.horizontalProgress).roundToInt()
+                }).coerceIn(0, horizontalRange)
+                val targetY = (anchoredY ?: run {
+                    (verticalRange * zoomAnchor.verticalProgress).roundToInt()
+                }).coerceIn(0, verticalRange)
                 horizontalScroll.scrollTo(targetX, 0)
                 verticalScroll.scrollTo(0, targetY)
                 surface.scaleX = 1f
                 surface.scaleY = 1f
+                updateSelectionPointer()
                 Log.d(
                     STABLE_ALPHATAB_LOG_TAG,
-                    "EDITOR_PINCH reconcile zoom=${zoomAnchor.toZoom} anchor=(${zoomAnchor.contentX},${zoomAnchor.contentY}) " +
+                    "EDITOR_PINCH reconcile zoom=${zoomAnchor.toZoom} noteAnchored=${newAnchorBounds != null} " +
                         "viewport=(${zoomAnchor.viewportX},${zoomAnchor.viewportY}) scroll=($targetX,$targetY) renderCount=$renderCount"
                 )
                 lastPinchLatencyMillis = (System.nanoTime() - pinchStartedNanos) / 1_000_000L
@@ -519,7 +615,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
             return
         }
         val noteBounds = allNoteHeadBounds(lookup)
-        val note = ExactNoteHeadHitTester.findUnique(
+        val note = AccessibleNoteHeadHitTester.findNearestUnique(
             rendererX,
             rendererY,
             noteBounds
@@ -527,7 +623,6 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         val restBounds = exactRestBounds(lookup)
         val clefBounds = exactClefBounds(lookup)
         val barlineBounds = exactBarlineBounds(lookup)
-        val measureBounds = exactMeasureBounds(lookup)
         val hit = when {
             note != null -> AlphaTabSelectionHit.NoteHit(note)
             else -> ExactElementHitTester.findUnique(rendererX, rendererY, restBounds)
@@ -536,12 +631,98 @@ internal class StableAlphaTabView @JvmOverloads constructor(
                     ?.let(AlphaTabSelectionHit::ClefHit)
                 ?: ExactElementHitTester.findUnique(rendererX, rendererY, barlineBounds)
                     ?.let { AlphaTabSelectionHit.BarlineHit(it.bar, it.side) }
-                ?: ExactElementHitTester.findUnique(rendererX, rendererY, measureBounds)
-                    ?.let(AlphaTabSelectionHit::MeasureHit)
                 ?: AlphaTabSelectionHit.Empty
         }
-        logHitDiagnostic(rendererX, rendererY, hit, noteBounds, restBounds, clefBounds, barlineBounds, measureBounds)
+        logHitDiagnostic(rendererX, rendererY, hit, noteBounds, restBounds, clefBounds, barlineBounds)
         onSelectionHit(hit)
+    }
+
+    /** Selects on ACTION_DOWN and returns everything the surface needs for a zero-latency drag preview. */
+    private fun beginNoteDrag(rendererX: Double, rendererY: Double): NoteDragStart? {
+        val lookup = renderer?.boundsLookup?.takeIf { it.isFinished } ?: return null
+        val bounds = allNoteHeadBounds(lookup)
+        val directNote = AccessibleNoteHeadHitTester.findNearestUnique(rendererX, rendererY, bounds)
+        val selectedNote = (selection as? AlphaTabRenderSelection.NoteSelection)?.note
+        val selectedBounds = selectedNote?.let(::preferredNoteHeadBounds)
+        val selectedPointer = selectedBounds?.let {
+            SelectionPointerGeometry.below(RendererRect(it.x, it.y, it.w, it.h))
+        }
+        val pointerHit = selectedPointer?.let { pointer ->
+            SelectionPointerHitTester.contains(
+                anchor = pointer,
+                x = rendererX,
+                y = rendererY,
+                halfWidth = POINTER_TOUCH_HALF_WIDTH_DP,
+                height = POINTER_HEIGHT_DP.toDouble(),
+                topPadding = POINTER_TOUCH_TOP_PADDING_DP,
+                bottomPadding = POINTER_TOUCH_BOTTOM_PADDING_DP
+            )
+        } == true
+        val note = directNote ?: selectedNote?.takeIf { pointerHit } ?: return null
+        val noteBounds = if (note === selectedNote && pointerHit) {
+            selectedBounds
+        } else {
+            bounds.filter { it.note === note }.minByOrNull { candidate ->
+                val dx = rendererX - (candidate.x + candidate.width / 2.0)
+                val dy = rendererY - (candidate.y + candidate.height / 2.0)
+                dx * dx + dy * dy
+            }?.let { candidate ->
+                alphaTab.rendering.utils.Bounds().apply {
+                    x = candidate.x
+                    y = candidate.y
+                    w = candidate.width
+                    h = candidate.height
+                }
+            }
+        } ?: return null
+        onSelectionHit(AlphaTabSelectionHit.NoteHit(note))
+        surface.setSelectionPointer(
+            SelectionPointerGeometry.below(
+                RendererRect(noteBounds.x, noteBounds.y, noteBounds.w, noteBounds.h)
+            )
+        )
+        return NoteDragStart(
+            noteHeadBounds = RectF(
+                (noteBounds.x * density).toFloat(),
+                (noteBounds.y * density).toFloat(),
+                ((noteBounds.x + noteBounds.w) * density).toFloat(),
+                ((noteBounds.y + noteBounds.h) * density).toFloat()
+            ),
+            visualStepPixels = (NOTE_DRAG_STEP_SCORE_UNITS * authoritativeZoom * density).toFloat(),
+            gestureStepPixels = (NOTE_DRAG_STEP_SCORE_UNITS * authoritativeZoom * density).toFloat()
+                .coerceIn(
+                    resources.displayMetrics.density * MIN_NOTE_DRAG_STEP_DP,
+                    resources.displayMetrics.density * MAX_NOTE_DRAG_GESTURE_STEP_DP
+                )
+        )
+    }
+
+    private fun preferredNoteHeadBounds(note: Note): alphaTab.rendering.utils.Bounds? {
+        val lookup = renderer?.boundsLookup?.takeIf { it.isFinished } ?: return null
+        val candidates = noteHeadBounds(lookup, note).filter { bounds ->
+            bounds.x.isFinite() && bounds.y.isFinite() && bounds.w > 0.0 && bounds.h > 0.0
+        }
+        if (candidates.isEmpty()) return null
+        val viewportCenterX = (horizontalScroll.scrollX + width / 2.0) / density
+        val viewportCenterY = (verticalScroll.scrollY + height / 2.0) / density
+        return candidates.minByOrNull { bounds ->
+            val dx = viewportCenterX - (bounds.x + bounds.w / 2.0)
+            val dy = viewportCenterY - (bounds.y + bounds.h / 2.0)
+            dx * dx + dy * dy
+        }
+    }
+
+    private fun updateSelectionPointer() {
+        val selectedNote = (selection as? AlphaTabRenderSelection.NoteSelection)?.note
+        if (selectedNote == null) {
+            surface.setSelectionPointer(null)
+            return
+        }
+        val bounds = preferredNoteHeadBounds(selectedNote)
+        val pointer = bounds?.let {
+            SelectionPointerGeometry.below(RendererRect(it.x, it.y, it.w, it.h))
+        }
+        surface.setSelectionPointer(pointer)
     }
 
     private fun allNoteHeadBounds(
@@ -1074,6 +1255,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
                     }
                     if (!released && generation == localizedRenderGeneration && result != null) {
                         updateLocalizedBounds(candidate, target, result.event)
+                        updateSelectionPointer()
                         surface.replaceBitmap(target.id, result.bitmap)
                         renderer?.boundsLookup?.takeIf { it.isFinished }?.let(::diagnoseVisibleElements)
                         val elapsed = (System.nanoTime() - localizedRefreshStartedNanos) / 1_000_000L
@@ -1238,16 +1420,6 @@ internal class StableAlphaTabView @JvmOverloads constructor(
                 )
             }
         }
-        val measureBounds = exactMeasureBounds(lookup)
-        allScoreBars().forEach { bar ->
-            diagnoseExactElement(
-                type = "measure",
-                identity = mapping.measureIdentity(bar)?.value,
-                element = bar,
-                bounds = measureBounds,
-                indexes = elementIndexes(bar)
-            )
-        }
     }
 
     private fun <T> diagnoseExactElement(
@@ -1280,16 +1452,14 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         notes: List<ExactNoteHeadBounds<Note>>,
         rests: List<ExactElementBounds<Beat>>,
         clefs: List<ExactElementBounds<Bar>>,
-        barlines: List<ExactElementBounds<BarlineRenderTarget>>,
-        measures: List<ExactElementBounds<Bar>>
+        barlines: List<ExactElementBounds<BarlineRenderTarget>>
     ) {
         fun contains(x: Double, y: Double, bx: Double, by: Double, w: Double, h: Double) =
             w > 0.0 && h > 0.0 && x >= bx && x <= bx + w && y >= by && y <= by + h
         val overlaps = notes.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
             rests.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
             clefs.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
-            barlines.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
-            measures.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) }
+            barlines.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) }
         val mapping = identityMapping
         val description = when (hit) {
             AlphaTabSelectionHit.Empty -> "type=empty identity=none indexes=none"
@@ -1348,13 +1518,23 @@ internal class StableAlphaTabView @JvmOverloads constructor(
     internal fun performAdjacentNonNoteTapForTest(): Boolean {
         val note = allScoreNotes().firstOrNull() ?: return false
         val bounds = noteHeadBounds(renderer?.boundsLookup ?: return false, note).singleOrNull() ?: return false
-        hitTest(bounds.x + bounds.w + 0.01, bounds.y + bounds.h / 2.0)
+        val centerX = bounds.x + bounds.w / 2.0
+        val targetWidth = maxOf(bounds.w, ACCESSIBLE_NOTE_TARGET_SIZE)
+        hitTest(centerX + targetWidth / 2.0 + 0.01, bounds.y + bounds.h / 2.0)
         return true
     }
 
     internal fun performSafeVisibleNoteTapForTest(identity: String): Boolean {
         val target = safeNoteTapTargets().singleOrNull { it.identity == identity } ?: return false
         hitTest(target.point.x, target.point.y)
+        return true
+    }
+
+    internal fun performNoteDragForTest(identity: String, diatonicOffset: Int): Boolean {
+        if (diatonicOffset == 0) return false
+        val target = safeNoteTapTargets().singleOrNull { it.identity == identity } ?: return false
+        hitTest(target.point.x, target.point.y)
+        onNoteDragBy(diatonicOffset)
         return true
     }
 
@@ -1430,7 +1610,19 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         val mapping = identityMapping ?: return emptyList()
         val bounds = exactMeasureBounds(lookup)
         val blockers = buildList<ExactElementBounds<Any>> {
-            allNoteHeadBounds(lookup).forEach { add(ExactElementBounds(it.note, it.x, it.y, it.width, it.height)) }
+            allNoteHeadBounds(lookup).forEach {
+                val width = maxOf(it.width, ACCESSIBLE_NOTE_TARGET_SIZE)
+                val height = maxOf(it.height, ACCESSIBLE_NOTE_TARGET_SIZE)
+                add(
+                    ExactElementBounds(
+                        it.note,
+                        it.x + it.width / 2.0 - width / 2.0,
+                        it.y + it.height / 2.0 - height / 2.0,
+                        width,
+                        height
+                    )
+                )
+            }
             exactRestBounds(lookup).forEach { add(ExactElementBounds(it.element, it.x, it.y, it.width, it.height)) }
             exactClefBounds(lookup).forEach { add(ExactElementBounds(it.element, it.x, it.y, it.width, it.height)) }
             exactBarlineBounds(lookup).forEach { add(ExactElementBounds(it.element, it.x, it.y, it.width, it.height)) }
@@ -1489,6 +1681,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         released = true
         renderScheduled = false
         applySelectionStyle(null)
+        surface.setSelectionPointer(null)
         activeLocalizedRenderers.forEach(ScoreRenderer::destroy)
         activeLocalizedRenderers.clear()
         renderer?.destroy()
@@ -1506,7 +1699,35 @@ private class StableScoreSurface(context: Context) : View(context) {
     private var downX = 0f
     private var downY = 0f
     private var moved = false
+    private var noteDrag: NoteDragStart? = null
+    private var noteDragSteps = 0
+    private var selectionPointer: SelectionPointerAnchor? = null
+    private val selectionPointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = SELECTED_POINTER_COLOR
+        style = Paint.Style.FILL
+    }
+    private val selectionPointerPath = Path()
+    private val noteDragPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = SELECTED_POINTER_COLOR
+        style = Paint.Style.FILL
+    }
+    private val noteDragGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(72, Color.red(SELECTED_POINTER_COLOR), Color.green(SELECTED_POINTER_COLOR), Color.blue(SELECTED_POINTER_COLOR))
+        strokeWidth = resources.displayMetrics.density
+        style = Paint.Style.STROKE
+    }
     var onTap: (Float, Float) -> Unit = { _, _ -> }
+    var onNoteDragStart: (Float, Float) -> NoteDragStart? = { _, _ -> null }
+    var onNoteDragFinished: (Int) -> Unit = {}
+
+    val selectionPointerRendered: Boolean get() = selectionPointer != null
+    val selectionPointerForTest: SelectionPointerAnchor? get() = selectionPointer
+
+    fun setSelectionPointer(pointer: SelectionPointerAnchor?) {
+        if (selectionPointer == pointer) return
+        selectionPointer = pointer
+        postInvalidate()
+    }
 
     val chunkCount: Int get() = chunks.size
     val hasVisibleRenderedChunks: Boolean
@@ -1636,6 +1857,61 @@ private class StableScoreSurface(context: Context) : View(context) {
                 )
             }
         }
+        selectionPointer?.let { pointer ->
+            val density = resources.displayMetrics.density
+            val centerX = (pointer.centerX * density).toFloat()
+            val dragOffsetY = noteDrag?.let { -noteDragSteps * it.visualStepPixels } ?: 0f
+            val tipY = (pointer.tipY * density).toFloat() + dragOffsetY
+            val halfWidth = POINTER_HALF_WIDTH_DP * density
+            val height = POINTER_HEIGHT_DP * density
+            selectionPointerPath.apply {
+                reset()
+                moveTo(centerX, tipY)
+                cubicTo(
+                    centerX + halfWidth,
+                    tipY + height * 0.42f,
+                    centerX + halfWidth,
+                    tipY + height * 0.78f,
+                    centerX,
+                    tipY + height
+                )
+                cubicTo(
+                    centerX - halfWidth,
+                    tipY + height * 0.78f,
+                    centerX - halfWidth,
+                    tipY + height * 0.42f,
+                    centerX,
+                    tipY
+                )
+                close()
+            }
+            canvas.drawPath(selectionPointerPath, selectionPointerPaint)
+        }
+        noteDrag?.takeIf { noteDragSteps != 0 }?.let { drag ->
+            val offsetY = -noteDragSteps * drag.visualStepPixels
+            val target = RectF(drag.noteHeadBounds).apply { this.offset(0f, offsetY) }
+            val centerX = target.centerX()
+            val centerY = target.centerY()
+            canvas.drawLine(
+                drag.noteHeadBounds.centerX(),
+                drag.noteHeadBounds.centerY(),
+                centerX,
+                centerY,
+                noteDragGuidePaint
+            )
+            val width = target.width().coerceAtLeast(7f * resources.displayMetrics.density)
+            val height = target.height().coerceAtLeast(5f * resources.displayMetrics.density)
+            val preview = RectF(
+                centerX - width / 2f,
+                centerY - height / 2f,
+                centerX + width / 2f,
+                centerY + height / 2f
+            )
+            canvas.save()
+            canvas.rotate(-18f, centerX, centerY)
+            canvas.drawOval(preview, noteDragPaint)
+            canvas.restore()
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1644,14 +1920,37 @@ private class StableScoreSurface(context: Context) : View(context) {
                 downX = event.x
                 downY = event.y
                 moved = false
+                noteDragSteps = 0
+                noteDrag = onNoteDragStart(event.x, event.y)
+                if (noteDrag != null) {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    postInvalidateOnAnimation()
+                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop) moved = true
+                noteDrag?.let { drag ->
+                    val nextSteps = (-(event.y - downY) / drag.gestureStepPixels).roundToInt()
+                        .coerceIn(-MAX_NOTE_DRAG_STEPS, MAX_NOTE_DRAG_STEPS)
+                    if (nextSteps != noteDragSteps) {
+                        noteDragSteps = nextSteps
+                        postInvalidateOnAnimation()
+                    }
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!moved) {
+                val completedDrag = noteDrag
+                val completedSteps = noteDragSteps
+                noteDrag = null
+                noteDragSteps = 0
+                parent?.requestDisallowInterceptTouchEvent(false)
+                postInvalidateOnAnimation()
+                if (completedDrag != null) {
+                    if (completedSteps != 0) onNoteDragFinished(completedSteps)
+                    performClick()
+                } else if (!moved) {
                     onTap(event.x, event.y)
                     performClick()
                 }
@@ -1659,6 +1958,10 @@ private class StableScoreSurface(context: Context) : View(context) {
             }
             MotionEvent.ACTION_CANCEL -> {
                 moved = true
+                noteDrag = null
+                noteDragSteps = 0
+                parent?.requestDisallowInterceptTouchEvent(false)
+                postInvalidateOnAnimation()
                 return true
             }
         }
@@ -1667,6 +1970,9 @@ private class StableScoreSurface(context: Context) : View(context) {
 
     fun cancelPendingTap() {
         moved = true
+        noteDrag = null
+        noteDragSteps = 0
+        postInvalidateOnAnimation()
     }
 
     override fun performClick(): Boolean {
@@ -1741,7 +2047,16 @@ private data class ZoomAnchor(
     val viewportX: Float,
     val viewportY: Float,
     val fromZoom: Float,
-    val toZoom: Float
+    val toZoom: Float,
+    val note: ZoomNoteAnchor?,
+    val horizontalProgress: Float,
+    val verticalProgress: Float
+)
+
+private data class ZoomNoteAnchor(
+    val note: Note,
+    val viewportX: Float,
+    val viewportY: Float
 )
 
 private data class LocalizedRenderResult(
@@ -1752,6 +2067,12 @@ private data class LocalizedRenderResult(
 private data class SafeNoteTapTarget(
     val identity: String,
     val point: ExactHitPoint
+)
+
+private data class NoteDragStart(
+    val noteHeadBounds: RectF,
+    val visualStepPixels: Float,
+    val gestureStepPixels: Float
 )
 
 private data class SafeElementTapTarget(
@@ -1804,11 +2125,16 @@ private fun createStableEditorSettings(zoom: Float) = Settings().apply {
         barsPerRow = -1.0
         stretchForce = 0.9
         justifyLastSystem = true
-        padding = DoubleList(8.0, 4.0, 8.0, 0.0)
-        firstSystemPaddingTop = 4.0
-        systemPaddingTop = 8.0
-        systemPaddingBottom = 8.0
-        lastSystemPaddingBottom = 6.0
+        padding = DoubleList(
+            EDITOR_PAGE_HORIZONTAL_PADDING,
+            EDITOR_PAGE_TOP_PADDING,
+            EDITOR_PAGE_HORIZONTAL_PADDING,
+            EDITOR_PAGE_BOTTOM_PADDING
+        )
+        firstSystemPaddingTop = EDITOR_FIRST_SYSTEM_PADDING
+        systemPaddingTop = EDITOR_SYSTEM_PADDING
+        systemPaddingBottom = EDITOR_SYSTEM_PADDING
+        lastSystemPaddingBottom = EDITOR_LAST_SYSTEM_PADDING
         resources.barNumberColor = alphaTab.model.Color(42.0, 42.0, 42.0, 255.0)
     }
     player.apply {
@@ -1841,6 +2167,22 @@ private object AlphaTabAndroidEnvironment {
 
 private const val ALPHATAB_ANNOTATION_HEIGHT = 12.0
 private const val MIN_ZOOM_CHANGE = 0.001f
+private const val EDITOR_PAGE_HORIZONTAL_PADDING = 16.0
+private const val EDITOR_PAGE_TOP_PADDING = 12.0
+private const val EDITOR_PAGE_BOTTOM_PADDING = 18.0
+private const val EDITOR_FIRST_SYSTEM_PADDING = 8.0
+private const val EDITOR_SYSTEM_PADDING = 12.0
+private const val EDITOR_LAST_SYSTEM_PADDING = 14.0
+private const val NOTE_DRAG_STEP_SCORE_UNITS = 5.0
+private const val MIN_NOTE_DRAG_STEP_DP = 4f
+private const val MAX_NOTE_DRAG_GESTURE_STEP_DP = 10f
+private const val MAX_NOTE_DRAG_STEPS = 28
+private const val POINTER_HALF_WIDTH_DP = 8f
+private const val POINTER_HEIGHT_DP = 15f
+private const val POINTER_TOUCH_HALF_WIDTH_DP = 18.0
+private const val POINTER_TOUCH_TOP_PADDING_DP = 8.0
+private const val POINTER_TOUCH_BOTTOM_PADDING_DP = 10.0
 private const val STABLE_ALPHATAB_LOG_TAG = "SheetSightAlphaTab"
 private val SCORE_PAGE_COLOR = Color.rgb(255, 254, 250)
 private val SELECTED_ELEMENT_COLOR = alphaTab.model.Color(0.0, 121.0, 107.0, 255.0)
+private val SELECTED_POINTER_COLOR = Color.rgb(0, 121, 107)

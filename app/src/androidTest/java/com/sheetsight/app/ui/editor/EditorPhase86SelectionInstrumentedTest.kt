@@ -73,7 +73,8 @@ class EditorPhase86SelectionInstrumentedTest {
         assertEquals(expectedSafe, view.mappedVisibleNoteIdentitiesForTest)
         assertEquals(expectedSafe, view.safelyTappableNoteIdentitiesForTest)
         tapAndVerifyEveryIdentity(view, expectedSafe, selection)
-        assertEquals(1, view.selectedColoredNoteCount)
+        assertEquals(0, view.selectedColoredNoteCount)
+        assertTrue(view.selectionPointerRendered)
         assertFalse(view.selectionBorderRendered)
 
         val safeRests = view.safelyTappableRestIdentitiesForTest
@@ -83,7 +84,7 @@ class EditorPhase86SelectionInstrumentedTest {
         assertTrue("Complex fixture must expose exact rest glyphs", safeRests.isNotEmpty())
         assertTrue("Complex fixture must expose exact clef glyphs", safeClefs.isNotEmpty())
         assertTrue("Complex fixture must expose exact barline glyphs", safeBarlines.isNotEmpty())
-        assertTrue("Complex fixture must expose exact measure regions", safeMeasures.isNotEmpty())
+        assertTrue("Complex fixture must expose staff whitespace for the disabled-hit regression", safeMeasures.isNotEmpty())
         assertTrue(safeRests.all { id -> ready.identityIndex.rests.any { it.identity.value == id } })
         assertTrue(safeClefs.all { id -> ready.identityIndex.clefs.any { it.identity.value == id } })
         assertTrue(safeBarlines.all { id -> ready.identityIndex.barlines.any { it.identity.value == id } })
@@ -91,8 +92,14 @@ class EditorPhase86SelectionInstrumentedTest {
         tapAndVerifyEveryRest(view, safeRests, selection)
         tapAndVerifyEveryClef(view, safeClefs, selection)
         tapAndVerifyEveryBarline(view, safeBarlines, selection)
-        tapAndVerifyEveryMeasure(view, safeMeasures, selection)
+        compose.runOnUiThread { view.performEmptyTapForTest() }
+        compose.waitUntil { selection.value == null }
+        safeMeasures.sorted().forEach { identity ->
+            compose.runOnUiThread { assertTrue(identity, view.performSafeMeasureTapForTest(identity)) }
+            compose.waitUntil { selection.value == null }
+        }
         assertEquals(0, view.selectedColoredNoteCount)
+        assertFalse(view.selectionPointerRendered)
 
         compose.onNodeWithTag("alphatab_score_view").performTouchInput { swipeUp() }
         compose.onNodeWithTag("alphatab_score_view").performTouchInput { swipeDown() }
@@ -104,13 +111,13 @@ class EditorPhase86SelectionInstrumentedTest {
         compose.runOnUiThread { assertTrue(view.performSafeVisibleNoteTapForTest(afterZoomIdentity)) }
         compose.waitUntil {
             (selection.value as? EditorSelection.NoteSelection)?.note?.identity?.value == afterZoomIdentity &&
-                view.selectedColoredNoteIdentitiesForTest == setOf(afterZoomIdentity)
+                view.selectionPointerRendered
         }
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitForIdle()
         val fullRendersBeforePinch = view.renderCount
         val zoomBeforePinch = view.currentZoomForTest
-        val centerBeforePinch = view.viewportCenterScorePointForTest
+        val selectedNoteBeforePinch = requireNotNull(view.selectedNoteViewportPointForTest)
         compose.runOnUiThread { view.performPinchForTest(scaleFactor = 1.75f) }
         compose.waitUntil(timeoutMillis = 30_000) {
             view.renderCount > fullRendersBeforePinch && view.currentZoomForTest > zoomBeforePinch &&
@@ -118,9 +125,13 @@ class EditorPhase86SelectionInstrumentedTest {
         }
         assertEquals(1, view.lastPinchAuthoritativeRenderCount)
         assertTrue(requireNotNull(view.lastPinchLatencyMillis) < 1_000L)
-        val centerAfterPinch = view.viewportCenterScorePointForTest
-        assertEquals(centerBeforePinch.x, centerAfterPinch.x, 5.0)
-        assertEquals(centerBeforePinch.y, centerAfterPinch.y, 5.0)
+        val selectedNoteAfterPinch = requireNotNull(view.selectedNoteViewportPointForTest)
+        assertEquals(selectedNoteBeforePinch.x, selectedNoteAfterPinch.x, 5.0)
+        assertEquals(selectedNoteBeforePinch.y, selectedNoteAfterPinch.y, 5.0)
+        requireNotNull(view.selectionPointerAlignmentErrorForTest).let { error ->
+            assertEquals(0.0, error.x, 0.01)
+            assertEquals(0.0, error.y, 0.01)
+        }
         compose.runOnUiThread { assertTrue(view.performSafeVisibleNoteTapForTest(afterZoomIdentity)) }
         compose.waitUntil {
             (selection.value as? EditorSelection.NoteSelection)?.note?.identity?.value == afterZoomIdentity
@@ -175,7 +186,7 @@ class EditorPhase86SelectionInstrumentedTest {
         compose.runOnUiThread { assertTrue(view.performSafeVisibleNoteTapForTest(editTarget.identity.value)) }
         compose.waitUntil(timeoutMillis = 10_000) {
             (selection.value as? EditorSelection.NoteSelection)?.note?.identity == editTarget.identity &&
-                view.selectedColoredNoteIdentitiesForTest == setOf(editTarget.identity.value)
+                view.selectionPointerRendered
         }
         val localizedRendersBeforePitch = view.localizedRenderCount
         val bitmapsBeforePitch = view.retainedBitmapIdentities
@@ -251,17 +262,6 @@ class EditorPhase86SelectionInstrumentedTest {
         }
     }
 
-    private fun tapAndVerifyEveryMeasure(
-        view: StableAlphaTabView,
-        identities: Set<String>,
-        selection: androidx.compose.runtime.MutableState<EditorSelection?>
-    ) = identities.sorted().forEach { identity ->
-        compose.runOnUiThread { assertTrue(identity, view.performSafeMeasureTapForTest(identity)) }
-        compose.waitUntil(timeoutMillis = 10_000) {
-            (selection.value as? EditorSelection.MeasureSelection)?.measure?.identity?.value == identity
-        }
-    }
-
     private fun tapAndVerifyEveryIdentity(
         view: StableAlphaTabView,
         identities: Set<String>,
@@ -271,9 +271,9 @@ class EditorPhase86SelectionInstrumentedTest {
             compose.runOnUiThread { assertTrue(identity, view.performSafeVisibleNoteTapForTest(identity)) }
             compose.waitUntil(timeoutMillis = 10_000) {
                 (selection.value as? EditorSelection.NoteSelection)?.note?.identity?.value == identity &&
-                    view.selectedColoredNoteIdentitiesForTest == setOf(identity)
+                    view.selectionPointerRendered
             }
-            assertEquals("Exactly one note must be colored after selecting $identity", 1, view.selectedColoredNoteCount)
+            assertEquals("Selection overlay must not repaint the score for $identity", 0, view.selectedColoredNoteCount)
         }
     }
 

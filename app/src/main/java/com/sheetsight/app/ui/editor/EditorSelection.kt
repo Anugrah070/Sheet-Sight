@@ -201,6 +201,85 @@ internal object ExactNoteHeadHitTester {
     }
 }
 
+/**
+ * Touch-friendly note matching. Exact notehead pixels win first; the fallback only
+ * expands individual note targets and never creates a measure/staff hit region.
+ */
+internal object AccessibleNoteHeadHitTester {
+    fun <T : Any> findNearestUnique(
+        x: Double,
+        y: Double,
+        bounds: Iterable<ExactNoteHeadBounds<T>>,
+        minimumTargetSize: Double = ACCESSIBLE_NOTE_TARGET_SIZE
+    ): T? {
+        val all = bounds.toList()
+        ExactNoteHeadHitTester.findUnique(x, y, all)?.let { return it }
+        if (!x.isFinite() || !y.isFinite() || !minimumTargetSize.isFinite() || minimumTargetSize <= 0.0) {
+            return null
+        }
+
+        val distances = java.util.IdentityHashMap<T, Double>()
+        all.forEach { candidate ->
+            if (!candidate.x.isFinite() || !candidate.y.isFinite() ||
+                !candidate.width.isFinite() || !candidate.height.isFinite() ||
+                candidate.width <= 0.0 || candidate.height <= 0.0
+            ) return@forEach
+
+            val centerX = candidate.x + candidate.width / 2.0
+            val centerY = candidate.y + candidate.height / 2.0
+            val targetWidth = maxOf(candidate.width, minimumTargetSize)
+            val targetHeight = maxOf(candidate.height, minimumTargetSize)
+            if (x < centerX - targetWidth / 2.0 || x > centerX + targetWidth / 2.0 ||
+                y < centerY - targetHeight / 2.0 || y > centerY + targetHeight / 2.0
+            ) return@forEach
+
+            val distance = (x - centerX) * (x - centerX) + (y - centerY) * (y - centerY)
+            val previous = distances[candidate.note]
+            if (previous == null || distance < previous) distances[candidate.note] = distance
+        }
+        if (distances.isEmpty()) return null
+        val bestDistance = distances.values.minOrNull() ?: return null
+        val nearest = distances.entries.filter { kotlin.math.abs(it.value - bestDistance) <= 1e-9 }
+        return nearest.singleOrNull()?.key
+    }
+}
+
+internal const val ACCESSIBLE_NOTE_TARGET_SIZE = 24.0
+
+internal data class SelectionPointerAnchor(val centerX: Double, val tipY: Double)
+
+internal object SelectionPointerGeometry {
+    fun below(bounds: RendererRect, gap: Double = 3.0): SelectionPointerAnchor? {
+        if (!bounds.x.isFinite() || !bounds.y.isFinite() ||
+            !bounds.width.isFinite() || !bounds.height.isFinite() ||
+            bounds.width <= 0.0 || bounds.height <= 0.0 || !gap.isFinite() || gap < 0.0
+        ) return null
+        return SelectionPointerAnchor(
+            centerX = bounds.x + bounds.width / 2.0,
+            tipY = bounds.y + bounds.height + gap
+        )
+    }
+}
+
+internal object SelectionPointerHitTester {
+    fun contains(
+        anchor: SelectionPointerAnchor,
+        x: Double,
+        y: Double,
+        halfWidth: Double,
+        height: Double,
+        topPadding: Double,
+        bottomPadding: Double
+    ): Boolean {
+        if (!x.isFinite() || !y.isFinite() || !halfWidth.isFinite() || !height.isFinite() ||
+            !topPadding.isFinite() || !bottomPadding.isFinite() || halfWidth <= 0.0 || height <= 0.0 ||
+            topPadding < 0.0 || bottomPadding < 0.0
+        ) return false
+        return x in (anchor.centerX - halfWidth)..(anchor.centerX + halfWidth) &&
+            y in (anchor.tipY - topPadding)..(anchor.tipY + height + bottomPadding)
+    }
+}
+
 /** Resolves exact alphaTab objects through the score-scoped Phase 8.2 identity mapping. */
 internal object EditorSelectionResolver {
     fun resolve(
@@ -244,8 +323,9 @@ internal object EditorSelectionResolver {
             is EditorSelection.BarlineSelection -> mapping.barline(selection.barline.identity)
                 .takeIf { it.isNotEmpty() }
                 ?.let { AlphaTabRenderSelection.BarlineSelection(it, selection.barline.side) }
-            is EditorSelection.MeasureSelection -> mapping.measure(selection.measure.identity)
-                .takeIf { it.isNotEmpty() }?.let(AlphaTabRenderSelection::MeasureSelection)
+            // Measure/staff-region taps are intentionally non-interactive. Keep the
+            // stable semantic type for compatibility, but never color stave lines.
+            is EditorSelection.MeasureSelection -> null
         }
     }
 

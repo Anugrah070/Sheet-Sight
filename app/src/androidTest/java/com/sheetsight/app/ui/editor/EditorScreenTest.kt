@@ -197,7 +197,7 @@ class EditorScreenTest {
     fun noteSelectionSurvivesRecompositionScrollAndZoomAndEmptyTapClearsIt() {
         val selection = mutableStateOf<EditorSelection?>(null)
         val recompositionMarker = mutableIntStateOf(0)
-        val pitchUpClicks = mutableIntStateOf(0)
+        val draggedSteps = mutableIntStateOf(0)
         compose.activity.setContent {
             @Suppress("UNUSED_EXPRESSION")
             recompositionMarker.intValue
@@ -206,7 +206,7 @@ class EditorScreenTest {
                     state = selectionReadyState,
                     selection = selection.value,
                     onSelectionChanged = { selection.value = it },
-                    onNoteUp = { pitchUpClicks.intValue++ }
+                    onNoteDragBy = { draggedSteps.intValue += it }
                 )
             }
         }
@@ -217,13 +217,13 @@ class EditorScreenTest {
 
         compose.runOnUiThread { assertTrue(stableView.performFirstNoteTapForTest()) }
         compose.waitUntil { selection.value is EditorSelection.NoteSelection }
-        compose.waitUntil { stableView.selectedColoredNoteCount == 1 }
         val selectedIdentity = (selection.value as EditorSelection.NoteSelection).note.identity
-        compose.waitUntil { stableView.selectedColoredNoteCount == 1 }
+        compose.waitUntil { stableView.selectionPointerRendered }
+        assertEquals("Selection must not trigger a score-system repaint", 0, stableView.localizedRenderCount)
         assertFalse("Selection border must not be rendered", stableView.selectionBorderRendered)
-        compose.onNodeWithTag("editor_pitch_controls").assertIsDisplayed()
-        compose.onNodeWithTag("editor_pitch_up").performClick()
-        assertEquals(1, pitchUpClicks.intValue)
+        compose.onNodeWithTag("editor_pitch_controls").assertDoesNotExist()
+        compose.runOnUiThread { assertTrue(stableView.performNoteDragForTest(selectedIdentity.value, 2)) }
+        assertEquals(2, draggedSteps.intValue)
 
         compose.runOnUiThread { assertTrue(stableView.performChordToneTapForTest(1)) }
         compose.waitUntil {
@@ -247,7 +247,7 @@ class EditorScreenTest {
         compose.waitUntil(timeoutMillis = 20_000) { stableView.renderCount >= 2 }
 
         assertEquals(selectedIdentity, (selection.value as EditorSelection.NoteSelection).note.identity)
-        compose.waitUntil { stableView.selectedColoredNoteCount == 1 }
+        compose.waitUntil { stableView.selectionPointerRendered }
 
         compose.runOnUiThread { stableView.performEmptyTapForTest() }
         compose.waitUntil { selection.value == null }
@@ -300,9 +300,7 @@ class EditorScreenTest {
         assertTrue(stableView.retainedChunkCount > 1)
         compose.runOnUiThread { assertTrue(stableView.performFirstNoteTapForTest()) }
         compose.waitUntil { selection.value is EditorSelection.NoteSelection }
-        compose.waitUntil(timeoutMillis = 20_000) {
-            stableView.selectedColoredNoteCount == 1 && stableView.lastPitchFeedbackMillis != null
-        }
+        compose.waitUntil(timeoutMillis = 20_000) { stableView.selectionPointerRendered }
         repeat(2) { compose.onNodeWithTag("alphatab_score_view").performTouchInput { swipeUp() } }
         compose.waitForIdle()
 
@@ -331,7 +329,7 @@ class EditorScreenTest {
         )
         assertTrue(feedbackMs < 1_000L)
         compose.onNodeWithTag("editor_loading").assertDoesNotExist()
-        compose.waitUntil { stableView.selectedColoredNoteCount == 1 }
+        compose.waitUntil { stableView.selectionPointerRendered }
         compose.runOnUiThread { assertTrue(stableView.performFirstNoteTapForTest()) }
         assertEquals(selected.note.identity, (selection.value as EditorSelection.NoteSelection).note.identity)
     }

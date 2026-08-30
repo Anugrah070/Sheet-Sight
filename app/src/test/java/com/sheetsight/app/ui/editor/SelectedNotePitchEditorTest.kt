@@ -48,6 +48,19 @@ class SelectedNotePitchEditorTest {
     }
 
     @Test
+    fun oneDragAppliesItsFullDiatonicOffsetAcrossOctaves() {
+        val bytes = singleNote("B", 4).toByteArray()
+        val identity = MusicXmlIdentityBuilder.build(SCORE_ID, MusicXmlParser.parseBytes(bytes)).notes.single().identity
+
+        val up = SelectedNotePitchEditor.edit(SCORE_ID, bytes, identity, diatonicOffset = 9)
+        val note = MusicXmlParser.parseBytes(up.musicXmlBytes).getElementsByTagName("note").item(0) as Element
+
+        assertEquals("D", note.pitchChild("step"))
+        assertEquals("6", note.pitchChild("octave"))
+        assertEquals(86, up.pitchMidi)
+    }
+
+    @Test
     fun alteredAndExplicitNaturalSourcesBecomeAdjacentNaturalNotesWithoutAccidentalElements() {
         val sharp = singleNote("C", 4, "<alter>1</alter>", "<accidental>sharp</accidental>")
         val flat = singleNote("E", 4, "<alter>-1</alter>", "<accidental>flat</accidental>")

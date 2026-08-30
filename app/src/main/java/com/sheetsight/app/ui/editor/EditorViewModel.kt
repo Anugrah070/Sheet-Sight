@@ -126,7 +126,7 @@ class EditorViewModel @Inject constructor(
     private var pendingSelectionIdentity: NoteIdentity? = null
     private var pitchVisualRevision = 0L
     private var editBaseSourceKey: EditorSourceKey? = null
-    private val pendingNoteEdits = ArrayDeque<NaturalNoteDirection>()
+    private var pendingDiatonicOffset = 0
 
     /** Scores that have completed OMR and can be viewed in the Editor. */
     val recognizedScores: StateFlow<List<Score>> = scoreRepository.observeEditorScores()
@@ -347,7 +347,7 @@ class EditorViewModel @Inject constructor(
         _selection.value = null
         pendingSelectionIdentity = null
         _noteEditInProgress.value = false
-        pendingNoteEdits.clear()
+        pendingDiatonicOffset = 0
         _uiState.value = state
     }
 
@@ -409,9 +409,15 @@ class EditorViewModel @Inject constructor(
     }
 
     fun moveSelectedNote(direction: NaturalNoteDirection) {
+        moveSelectedNoteBy(if (direction == NaturalNoteDirection.UP) 1 else -1)
+    }
+
+    /** Applies one drag gesture as one optimistic update and one persisted artifact. */
+    fun moveSelectedNoteBy(diatonicOffset: Int) {
+        if (diatonicOffset == 0) return
         if (_noteEditInProgress.value) {
-            pendingNoteEdits.addLast(direction)
-            logger.info("EDITOR_NOTE_EDIT queued direction=$direction pending=${pendingNoteEdits.size}")
+            pendingDiatonicOffset += diatonicOffset
+            logger.info("EDITOR_NOTE_EDIT queued offset=$diatonicOffset pending=$pendingDiatonicOffset")
             return
         }
         val ready = _uiState.value as? EditorUiState.Ready ?: return
@@ -419,7 +425,7 @@ class EditorViewModel @Inject constructor(
         if (selected.sourceKey != ready.sourceKey) return
         val currentStep = selected.note.pitchStep ?: return
         val currentOctave = selected.note.pitchOctave ?: return
-        val previewTarget = naturalTarget(currentStep, currentOctave, direction) ?: return
+        val previewTarget = naturalTarget(currentStep, currentOctave, diatonicOffset) ?: return
 
         _noteEditInProgress.value = true
         editBaseSourceKey = ready.sourceKey
@@ -438,7 +444,7 @@ class EditorViewModel @Inject constructor(
                         scoreId = ready.scoreId,
                         sourceBytes = ready.musicXml.toByteArray(Charsets.UTF_8),
                         noteIdentity = selected.note.identity,
-                        direction = direction
+                        diatonicOffset = diatonicOffset
                     )
                     edit to musicXmlLoader.loadBytes(edit.musicXmlBytes, ready.scoreId)
                 }
@@ -527,7 +533,9 @@ class EditorViewModel @Inject constructor(
             "EDITOR_NOTE_EDIT committed identity=${edit.noteIdentity.value} target=${edit.pitchStep}${edit.pitchOctave} " +
                 "currentMusicXmlPath=$currentPath originalMusicXmlPath=${observedScore?.originalMusicXmlPath}"
         )
-        pendingNoteEdits.removeFirstOrNull()?.let(::moveSelectedNote)
+        val queuedOffset = pendingDiatonicOffset
+        pendingDiatonicOffset = 0
+        if (queuedOffset != 0) moveSelectedNoteBy(queuedOffset)
     }
 
     private fun failOptimisticNoteEdit(noteIdentity: NoteIdentity, message: String?) {
@@ -537,7 +545,7 @@ class EditorViewModel @Inject constructor(
             noteIdentity = noteIdentity
         )
         _noteEditInProgress.value = false
-        pendingNoteEdits.clear()
+        pendingDiatonicOffset = 0
         _feedback.value = EditorFeedback.PitchEditFailed(
             message ?: "The selected note could not be edited safely."
         )
@@ -591,7 +599,7 @@ class EditorViewModel @Inject constructor(
         _noteEditInProgress.value = false
         _pitchVisualUpdate.value = null
         editBaseSourceKey = null
-        pendingNoteEdits.clear()
+        pendingDiatonicOffset = 0
     }
 
     companion object {
@@ -602,19 +610,13 @@ class EditorViewModel @Inject constructor(
         private fun naturalTarget(
             step: String,
             octave: Int,
-            direction: NaturalNoteDirection
+            diatonicOffset: Int
         ): NaturalTarget? {
             val steps = listOf("C", "D", "E", "F", "G", "A", "B")
             val current = steps.indexOf(step.uppercase()).takeIf { it >= 0 } ?: return null
-            val next = when (direction) {
-                NaturalNoteDirection.UP -> (current + 1) % steps.size
-                NaturalNoteDirection.DOWN -> (current - 1 + steps.size) % steps.size
-            }
-            val targetOctave = octave + when {
-                direction == NaturalNoteDirection.UP && current == steps.lastIndex -> 1
-                direction == NaturalNoteDirection.DOWN && current == 0 -> -1
-                else -> 0
-            }
+            val absoluteNaturalIndex = octave * steps.size + current + diatonicOffset
+            val targetOctave = Math.floorDiv(absoluteNaturalIndex, steps.size)
+            val next = Math.floorMod(absoluteNaturalIndex, steps.size)
             val semitone = mapOf("C" to 0, "D" to 2, "E" to 4, "F" to 5, "G" to 7, "A" to 9, "B" to 11)
                 .getValue(steps[next])
             val midi = (targetOctave + 1) * 12 + semitone

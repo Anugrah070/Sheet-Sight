@@ -301,6 +301,30 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `one drag persists its final multi-step pitch as one artifact`() = runTest(dispatcher) {
+        val current = validMusicXmlFile("drag-current.musicxml", "C")
+        val repository = FakeScoreRepository(score(current.path, current.path))
+        val viewModel = viewModel(repository)
+        viewModel.loadScore(SCORE_A)
+        advanceUntilIdle()
+        val ready = viewModel.uiState.value as EditorUiState.Ready
+        val note = ready.identityIndex.notes.single()
+        val chord = ready.identityIndex.chords.single()
+        viewModel.onSelectionChanged(EditorSelection.NoteSelection(ready.sourceKey, chord.identity, note))
+
+        viewModel.moveSelectedNoteBy(4)
+        val preview = viewModel.pitchVisualUpdate.value as EditorPitchVisualUpdate.Apply
+        assertEquals("G", preview.pitchStep)
+        assertEquals(67, preview.pitchMidi)
+        advanceUntilIdle()
+
+        val after = viewModel.uiState.value as EditorUiState.Ready
+        assertTrue(after.musicXml.contains("<step>G</step>"))
+        assertEquals(1, repository.persistedEditCount)
+        assertTrue(viewModel.pitchVisualUpdate.value is EditorPitchVisualUpdate.Commit)
+    }
+
+    @Test
     fun `failed persistence rolls optimistic note back without loading or changing Room path`() = runTest(dispatcher) {
         val original = validMusicXmlFile("rollback-original.musicxml", "C")
         val current = validMusicXmlFile("rollback-current.musicxml", "C")

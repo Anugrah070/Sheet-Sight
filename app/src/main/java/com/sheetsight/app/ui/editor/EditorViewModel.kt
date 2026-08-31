@@ -11,6 +11,7 @@ import com.sheetsight.app.domain.repository.MusicXmlVersionPersistenceResult
 import com.sheetsight.app.ui.editor.notation.NotationDocument
 import com.sheetsight.app.ui.editor.identity.EditableScoreIdentityIndex
 import com.sheetsight.app.ui.editor.identity.NoteIdentity
+import com.sheetsight.app.ui.editor.identity.MeasureIdentity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import java.io.IOException
@@ -70,6 +71,7 @@ sealed interface EditorFeedback {
     data object GeneratedScoreDeleted : EditorFeedback
     data class DeleteFailed(val message: String) : EditorFeedback
     data class PitchEditFailed(val message: String) : EditorFeedback
+    data class EditFailed(val message: String) : EditorFeedback
 }
 
 sealed interface EditorPitchVisualUpdate {
@@ -394,6 +396,9 @@ class EditorViewModel @Inject constructor(
             is EditorSelection.ClefSelection -> ready.identityIndex.clefs.singleOrNull {
                 it.identity == selection.clef.identity
             } == selection.clef
+            is EditorSelection.TimeSignatureSelection -> ready.identityIndex.timeSignatures.singleOrNull {
+                it.identity == selection.timeSignature.identity
+            } == selection.timeSignature
             is EditorSelection.BarlineSelection -> ready.identityIndex.barlines.singleOrNull {
                 it.identity == selection.barline.identity
             } == selection.barline
@@ -410,6 +415,162 @@ class EditorViewModel @Inject constructor(
 
     fun moveSelectedNote(direction: NaturalNoteDirection) {
         moveSelectedNoteBy(if (direction == NaturalNoteDirection.UP) 1 else -1)
+    }
+
+    fun insertNote(
+        anchor: NoteInsertionAnchor,
+        duration: EditorNoteDuration,
+        pitchStep: String,
+        pitchOctave: Int
+    ) = performStructuralEdit {
+        InsertNote.apply(scoreId, musicXml.toByteArray(Charsets.UTF_8), anchor, duration, pitchStep, pitchOctave)
+    }
+
+    fun deleteSelection() {
+        val selected = _selection.value ?: return
+        when (selected) {
+            is EditorSelection.NoteSelection -> performStructuralEdit {
+                DeleteNote.apply(scoreId, musicXml.toByteArray(Charsets.UTF_8), selected.note.identity)
+            }
+            is EditorSelection.ClefSelection -> performStructuralEdit {
+                DeleteClefChange.apply(scoreId, musicXml.toByteArray(Charsets.UTF_8), selected.clef.identity)
+            }
+            else -> _feedback.value = EditorFeedback.EditFailed(
+                "Select a note or a later clef change to delete it."
+            )
+        }
+    }
+
+    fun replaceSelectedClef(clef: EditorClef) {
+        val selected = _selection.value as? EditorSelection.ClefSelection ?: return
+        performStructuralEdit {
+            ReplaceClef.apply(scoreId, musicXml.toByteArray(Charsets.UTF_8), selected.clef.identity, clef)
+        }
+    }
+
+    fun insertClef(measureIdentity: MeasureIdentity, clef: EditorClef, staff: Int = 1) =
+        performStructuralEdit {
+            InsertClef.apply(scoreId, musicXml.toByteArray(Charsets.UTF_8), measureIdentity, clef, staff)
+        }
+
+    fun replaceSelectedTimeSignature(timeSignature: EditorTimeSignature) {
+        val selected = _selection.value as? EditorSelection.TimeSignatureSelection ?: return
+        performStructuralEdit {
+            ReplaceTimeSignature.apply(
+                scoreId,
+                musicXml.toByteArray(Charsets.UTF_8),
+                selected.timeSignature.identity,
+                timeSignature
+            )
+        }
+    }
+
+    fun insertTimeSignature(
+        measureIdentity: MeasureIdentity,
+        timeSignature: EditorTimeSignature,
+        staff: Int = 1
+    ) = performStructuralEdit {
+        InsertTimeSignature.apply(
+            scoreId,
+            musicXml.toByteArray(Charsets.UTF_8),
+            measureIdentity,
+            timeSignature,
+            staff
+        )
+    }
+
+    private fun performStructuralEdit(
+        operation: EditorUiState.Ready.() -> MusicXmlEditResult
+    ) {
+        if (_noteEditInProgress.value) return
+        val ready = _uiState.value as? EditorUiState.Ready ?: return
+        _noteEditInProgress.value = true
+        editBaseSourceKey = ready.sourceKey
+        viewModelScope.launch {
+            val prepared = withContext(ioDispatcher) {
+                runCatching {
+                    val edit = ready.operation()
+                    edit to musicXmlLoader.loadBytes(edit.musicXmlBytes, ready.scoreId)
+                }
+            }.getOrElse { failure ->
+                failStructuralEdit(failure.message)
+                return@launch
+            }
+            val (edit, reconciled) = prepared
+            if (!reconciled.document.hasRenderableEvents) {
+                failStructuralEdit("The edited score is not renderable.")
+                return@launch
+            }
+            when (val persistence = withContext(ioDispatcher) {
+                scoreRepository.persistEditedMusicXmlVersion(
+                    id = ready.scoreId,
+                    expectedCurrentPath = ready.currentMusicXmlPath,
+                    musicXmlBytes = edit.musicXmlBytes
+                )
+            }) {
+                is MusicXmlVersionPersistenceResult.Failure -> failStructuralEdit(persistence.message)
+                is MusicXmlVersionPersistenceResult.Success -> reconcileStructuralEdit(
+                    ready,
+                    edit,
+                    reconciled,
+                    persistence.currentMusicXmlPath
+                )
+            }
+        }
+    }
+
+    private suspend fun reconcileStructuralEdit(
+        previous: EditorUiState.Ready,
+        edit: MusicXmlEditResult,
+        reconciled: EditorLoadResult,
+        currentPath: String
+    ) {
+        val facts = withContext(ioDispatcher) {
+            val file = File(currentPath)
+            EditorFileFacts(file.isFile, file.isFile, file.canRead(), file.length(), file.lastModified())
+        }
+        if (!facts.exists || !facts.canRead || facts.size <= 0L) {
+            failStructuralEdit("The validated edited artifact is unavailable.")
+            return
+        }
+        if ((_uiState.value as? EditorUiState.Ready)?.sourceKey != previous.sourceKey ||
+            currentScoreId != previous.scoreId
+        ) {
+            failStructuralEdit("The edited score is no longer open.")
+            return
+        }
+        val nextSourceKey = EditorSourceKey(previous.scoreId, currentPath, facts.size, facts.lastModified)
+        val index = requireNotNull(reconciled.identityIndex)
+        val nextSelection = edit.preferredSelection.toEditorSelection(nextSourceKey, index)
+        if (edit.preferredSelection != PreferredEditSelection.None && nextSelection == null) {
+            failStructuralEdit("The edited element could not be reconciled.")
+            return
+        }
+        val warning = reconciled.document.unsupportedElements.takeIf { it.isNotEmpty() }
+            ?.entries?.joinToString(prefix = "Some elements are not displayed: ", separator = ", ") {
+                (name, count) -> "$name ($count)"
+            }
+        loadedSourceKey = nextSourceKey
+        loadingSourceKey = null
+        editBaseSourceKey = null
+        _uiState.value = previous.copy(
+            currentMusicXmlPath = currentPath,
+            sourceKey = nextSourceKey,
+            document = reconciled.document,
+            musicXml = reconciled.musicXml,
+            warningSummary = warning,
+            identityIndex = index
+        )
+        _selection.value = nextSelection
+        _noteEditInProgress.value = false
+        observedScore = observedScore?.takeIf { it.id == previous.scoreId }
+            ?.copy(currentMusicXmlPath = currentPath)
+    }
+
+    private fun failStructuralEdit(message: String?) {
+        editBaseSourceKey = null
+        _noteEditInProgress.value = false
+        _feedback.value = EditorFeedback.EditFailed(message ?: "The score could not be edited safely.")
     }
 
     /** Applies one drag gesture as one optimistic update and one persisted artifact. */
@@ -634,3 +795,21 @@ private data class EditorFileFacts(
     val size: Long,
     val lastModified: Long
 )
+
+private fun PreferredEditSelection.toEditorSelection(
+    sourceKey: EditorSourceKey,
+    index: EditableScoreIdentityIndex
+): EditorSelection? = when (this) {
+    is PreferredEditSelection.Note -> index.notes.singleOrNull { it.identity == identity }?.let { note ->
+        index.chords.singleOrNull { chord -> chord.notes.any { it.identity == identity } }?.let { chord ->
+            EditorSelection.NoteSelection(sourceKey, chord.identity, note)
+        }
+    }
+    is PreferredEditSelection.Clef -> index.clefs.singleOrNull { it.identity == identity }
+        ?.let { EditorSelection.ClefSelection(sourceKey, it) }
+    is PreferredEditSelection.TimeSignature -> index.timeSignatures.singleOrNull { it.identity == identity }
+        ?.let { EditorSelection.TimeSignatureSelection(sourceKey, it) }
+    is PreferredEditSelection.Measure -> index.measures.singleOrNull { it.identity == identity }
+        ?.let { EditorSelection.MeasureSelection(sourceKey, it) }
+    PreferredEditSelection.None -> null
+}

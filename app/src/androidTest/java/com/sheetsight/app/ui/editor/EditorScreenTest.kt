@@ -10,6 +10,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -19,6 +20,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.unit.dp
 import android.view.View
 import android.view.ViewGroup
 import com.sheetsight.app.MainActivity
@@ -252,6 +254,76 @@ class EditorScreenTest {
         compose.runOnUiThread { stableView.performEmptyTapForTest() }
         compose.waitUntil { selection.value == null }
         compose.waitUntil { stableView.selectedColoredNoteCount == 0 }
+    }
+
+    @Test
+    fun insertionCursorDurationToolbarAndAccessibleInsertStayAlignedAfterZoom() {
+        val selection = mutableStateOf<EditorSelection?>(null)
+        val inserted = mutableStateOf<NoteInsertionAnchor?>(null)
+        compose.activity.setContent {
+            MaterialTheme {
+                EditorScreenContent(
+                    state = readyState,
+                    selection = selection.value,
+                    onSelectionChanged = { selection.value = it },
+                    onInsertNote = { anchor, _, _, _ -> inserted.value = anchor }
+                )
+            }
+        }
+        compose.waitUntil(timeoutMillis = 20_000) {
+            compose.onAllNodesWithTag("sheet_music_render_loading").fetchSemanticsNodes().isEmpty()
+        }
+        val stableView = compose.activity.window.decorView.findStableAlphaTabView()
+        val restIdentity = stableView.safelyTappableRestIdentitiesForTest.single()
+
+        compose.runOnUiThread { assertTrue(stableView.performSafeRestTapForTest(restIdentity)) }
+        compose.waitUntil { stableView.insertionCursorRendered }
+        compose.onNodeWithTag("editor_duration_quarter").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("editor_insert_note").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+
+        compose.runOnUiThread { stableView.performPinchForTest(1.25f) }
+        compose.waitUntil(timeoutMillis = 20_000) { stableView.currentZoomForTest > 1f }
+        compose.waitUntil { stableView.insertionCursorRendered }
+        compose.onNodeWithTag("editor_insert_note").performClick()
+        compose.waitUntil { inserted.value?.restIdentity?.value == restIdentity }
+    }
+
+    @Test
+    fun contextualDeleteClefAndTimeActionsExposeAccessibleTouchTargets() {
+        val state = selectionReadyState
+        val note = state.identityIndex.notes.first()
+        val chord = state.identityIndex.chords.single()
+        val selection = mutableStateOf<EditorSelection?>(
+            EditorSelection.NoteSelection(state.sourceKey, chord.identity, note)
+        )
+        var deleted by mutableStateOf(false)
+        compose.activity.setContent {
+            MaterialTheme {
+                EditorScreenContent(
+                    state = state,
+                    selection = selection.value,
+                    onSelectionChanged = { selection.value = it },
+                    onDeleteSelection = { deleted = true }
+                )
+            }
+        }
+
+        compose.onNodeWithTag("editor_delete_selection").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
+        compose.waitUntil { deleted }
+
+        compose.runOnUiThread {
+            val clef = state.identityIndex.clefs.single()
+            selection.value = EditorSelection.ClefSelection(state.sourceKey, clef)
+        }
+        compose.onNodeWithTag("editor_clef_action").assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
+        compose.onNodeWithTag("editor_clef_bass").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("editor_clef_bass").performClick()
+        compose.runOnUiThread {
+            selection.value = EditorSelection.MeasureSelection(state.sourceKey, state.identityIndex.measures.single())
+        }
+        compose.onNodeWithTag("editor_time_signature_action")
+            .assertIsDisplayed().assertHeightIsAtLeast(48.dp).performClick()
+        compose.onNodeWithTag("editor_time_4_4").assertIsDisplayed().assertHeightIsAtLeast(48.dp)
     }
 
     @Test

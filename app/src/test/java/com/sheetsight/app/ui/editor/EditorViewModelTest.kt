@@ -379,6 +379,48 @@ class EditorViewModelTest {
         assertTrue(!viewModel.noteEditInProgress.value)
     }
 
+    @Test
+    fun `successful structural delete persists exactly one version and selects its measure`() = runTest(dispatcher) {
+        val current = validMusicXmlFile("delete-current.musicxml", "C")
+        val repository = FakeScoreRepository(score(current.path, current.path))
+        val viewModel = viewModel(repository)
+        viewModel.loadScore(SCORE_A)
+        advanceUntilIdle()
+        val ready = viewModel.uiState.value as EditorUiState.Ready
+        val note = ready.identityIndex.notes.single()
+        val chord = ready.identityIndex.chords.single()
+        viewModel.onSelectionChanged(EditorSelection.NoteSelection(ready.sourceKey, chord.identity, note))
+
+        viewModel.deleteSelection()
+        advanceUntilIdle()
+
+        val after = viewModel.uiState.value as EditorUiState.Ready
+        assertEquals(1, repository.persistedEditCount)
+        assertTrue(after.musicXml.contains("<rest"))
+        assertTrue(viewModel.selection.value is EditorSelection.MeasureSelection)
+        assertTrue(!viewModel.noteEditInProgress.value)
+    }
+
+    @Test
+    fun `failed structural validation never persists or changes the document`() = runTest(dispatcher) {
+        val current = validMusicXmlFile("invalid-clef-delete.musicxml", "C")
+        val repository = FakeScoreRepository(score(current.path, current.path))
+        val viewModel = viewModel(repository)
+        viewModel.loadScore(SCORE_A)
+        advanceUntilIdle()
+        val ready = viewModel.uiState.value as EditorUiState.Ready
+        val initialClef = ready.identityIndex.clefs.single()
+        viewModel.onSelectionChanged(EditorSelection.ClefSelection(ready.sourceKey, initialClef))
+
+        viewModel.deleteSelection()
+        advanceUntilIdle()
+
+        assertEquals(0, repository.persistedEditCount)
+        assertEquals(ready.musicXml, (viewModel.uiState.value as EditorUiState.Ready).musicXml)
+        assertTrue(viewModel.feedback.value is EditorFeedback.EditFailed)
+        assertTrue(!viewModel.noteEditInProgress.value)
+    }
+
     private fun viewModel(
         repository: ScoreRepository,
         loader: EditorMusicXmlLoader = EditorMusicXmlLoader()

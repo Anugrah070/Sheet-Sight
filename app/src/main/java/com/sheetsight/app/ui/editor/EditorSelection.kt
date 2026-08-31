@@ -14,6 +14,7 @@ import com.sheetsight.app.ui.editor.identity.EditableChordRef
 import com.sheetsight.app.ui.editor.identity.EditableMeasureRef
 import com.sheetsight.app.ui.editor.identity.EditableNoteRef
 import com.sheetsight.app.ui.editor.identity.EditableRestRef
+import com.sheetsight.app.ui.editor.identity.EditableTimeSignatureRef
 import com.sheetsight.app.ui.editor.identity.EditableScoreIdentityIndex
 
 /** Stable Editor selection. Renderer objects and coordinates never leave the UI mapping seam. */
@@ -41,6 +42,11 @@ sealed interface EditorSelection {
         val clef: EditableClefRef
     ) : EditorSelection
 
+    data class TimeSignatureSelection(
+        override val sourceKey: EditorSourceKey,
+        val timeSignature: EditableTimeSignatureRef
+    ) : EditorSelection
+
     data class BarlineSelection(
         override val sourceKey: EditorSourceKey,
         val barline: EditableBarlineRef
@@ -55,8 +61,14 @@ sealed interface EditorSelection {
 internal sealed interface AlphaTabSelectionHit {
     data class NoteHit(val note: Note) : AlphaTabSelectionHit
     data class ChordHit(val beat: Beat) : AlphaTabSelectionHit
-    data class RestHit(val beat: Beat) : AlphaTabSelectionHit
+    data class RestHit(
+        val beat: Beat,
+        val pitchStep: String = "C",
+        val pitchOctave: Int = 4,
+        val staffStepIndex: Int = 0
+    ) : AlphaTabSelectionHit
     data class ClefHit(val bar: Bar) : AlphaTabSelectionHit
+    data class TimeSignatureHit(val bar: Bar) : AlphaTabSelectionHit
     data class BarlineHit(val bar: Bar, val side: BarlineSide) : AlphaTabSelectionHit
     data class MeasureHit(val bar: Bar) : AlphaTabSelectionHit
     data object Empty : AlphaTabSelectionHit
@@ -67,6 +79,7 @@ internal sealed interface AlphaTabRenderSelection {
     data class ChordSelection(val beat: Beat) : AlphaTabRenderSelection
     data class RestSelection(val beat: Beat) : AlphaTabRenderSelection
     data class ClefSelection(val bars: List<Bar>) : AlphaTabRenderSelection
+    data class TimeSignatureSelection(val bars: List<Bar>) : AlphaTabRenderSelection
     data class BarlineSelection(val bars: List<Bar>, val side: BarlineSide) : AlphaTabRenderSelection
     data class MeasureSelection(val bars: List<Bar>) : AlphaTabRenderSelection
 }
@@ -296,6 +309,7 @@ internal object EditorSelectionResolver {
             AlphaTabSelectionHit.Empty -> EditorSelectionResolution(null)
             is AlphaTabSelectionHit.RestHit -> resolveRest(sourceKey, identityIndex, mapping, hit.beat)
             is AlphaTabSelectionHit.ClefHit -> resolveClef(sourceKey, identityIndex, mapping, hit.bar)
+            is AlphaTabSelectionHit.TimeSignatureHit -> resolveTimeSignature(sourceKey, identityIndex, mapping, hit.bar)
             is AlphaTabSelectionHit.BarlineHit -> resolveBarline(sourceKey, identityIndex, mapping, hit.bar, hit.side)
             is AlphaTabSelectionHit.MeasureHit -> resolveMeasure(sourceKey, identityIndex, mapping, hit.bar)
             is AlphaTabSelectionHit.NoteHit -> resolveNote(sourceKey, identityIndex, mapping, hit.note)
@@ -320,6 +334,8 @@ internal object EditorSelectionResolver {
                 ?.let(AlphaTabRenderSelection::RestSelection)
             is EditorSelection.ClefSelection -> mapping.clef(selection.clef.identity)
                 .takeIf { it.isNotEmpty() }?.let(AlphaTabRenderSelection::ClefSelection)
+            is EditorSelection.TimeSignatureSelection -> mapping.timeSignature(selection.timeSignature.identity)
+                .takeIf { it.isNotEmpty() }?.let(AlphaTabRenderSelection::TimeSignatureSelection)
             is EditorSelection.BarlineSelection -> mapping.barline(selection.barline.identity)
                 .takeIf { it.isNotEmpty() }
                 ?.let { AlphaTabRenderSelection.BarlineSelection(it, selection.barline.side) }
@@ -384,6 +400,19 @@ internal object EditorSelectionResolver {
         val clef = identityIndex.clefs.singleOrNull { it.identity == identity }
             ?: return failure("Stable ClefIdentity did not resolve to exactly one MusicXML clef occurrence.")
         return EditorSelectionResolution(EditorSelection.ClefSelection(sourceKey, clef))
+    }
+
+    private fun resolveTimeSignature(
+        sourceKey: EditorSourceKey,
+        identityIndex: EditableScoreIdentityIndex,
+        mapping: AlphaTabIdentityMapping,
+        bar: Bar
+    ): EditorSelectionResolution {
+        val identity = mapping.timeSignatureIdentity(bar)
+            ?: return failure("Rendered time signature has no stable TimeSignatureIdentity.")
+        val time = identityIndex.timeSignatures.singleOrNull { it.identity == identity }
+            ?: return failure("Stable TimeSignatureIdentity did not resolve to exactly one MusicXML occurrence.")
+        return EditorSelectionResolution(EditorSelection.TimeSignatureSelection(sourceKey, time))
     }
 
     private fun resolveBarline(

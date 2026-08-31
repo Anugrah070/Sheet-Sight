@@ -46,6 +46,9 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+internal data class AlphaTabRenderInsertionCursor(val beat: Beat, val staffStepIndex: Int)
+private data class InsertionCursorGeometry(val x: Double, val y: Double)
+
 /**
  * A read-only alphaTab host that keeps every rendered score chunk resident.
  *
@@ -92,6 +95,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
     private var onSystemChanged: (Int) -> Unit = {}
     private var identityMapping: AlphaTabIdentityMapping? = null
     private var selection: AlphaTabRenderSelection? = null
+    private var insertionCursor: AlphaTabRenderInsertionCursor? = null
     private var selectedElementStyle: SelectedElementStyle? = null
     private var onSelectionHit: (AlphaTabSelectionHit) -> Unit = {}
     private var onNoteDragBy: (Int) -> Unit = {}
@@ -190,6 +194,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         }
     internal val selectionBorderRendered: Boolean get() = false
     internal val selectionPointerRendered: Boolean get() = surface.selectionPointerRendered
+    internal val insertionCursorRendered: Boolean get() = surface.insertionCursorRendered
     internal var alphaTabInitCount: Int = 0
         private set
     internal var scoreLoadCount: Int = 0
@@ -331,6 +336,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         onSystemChanged: (Int) -> Unit,
         identityMapping: AlphaTabIdentityMapping?,
         selection: AlphaTabRenderSelection?,
+        insertionCursor: AlphaTabRenderInsertionCursor? = null,
         pitchVisualUpdate: AlphaTabPitchVisualUpdate?,
         onSelectionHit: (AlphaTabSelectionHit) -> Unit,
         onNoteDragBy: (Int) -> Unit,
@@ -350,6 +356,8 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         }
         this.selection = selection
         updateSelectionPointer()
+        this.insertionCursor = insertionCursor
+        updateInsertionCursor()
         this.onSelectionHit = onSelectionHit
         this.onNoteDragBy = onNoteDragBy
         this.initialSystemIndex = initialSystemIndex.coerceAtLeast(0)
@@ -367,7 +375,9 @@ internal class StableAlphaTabView @JvmOverloads constructor(
 
         val scoreChanged = this.score !== score
         pendingScrollProgress = if (scoreChanged) {
-            if (this.systemCount > 1) {
+            if (this.score != null && surface.chunkCount > 0) {
+                currentScrollProgress()
+            } else if (this.systemCount > 1) {
                 this.initialSystemIndex.toFloat() / (this.systemCount - 1).toFloat()
             } else {
                 0f
@@ -453,6 +463,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
                             surface.commitReplacement(density)
                             surface.removeRendererAnnotation()
                             updateSelectionPointer()
+                            updateInsertionCursor()
                             restoreReadingPosition()
                             scoreRenderer.boundsLookup?.let(::diagnoseVisibleElements)
                             Log.d(
@@ -622,18 +633,40 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         )
         val restBounds = exactRestBounds(lookup)
         val clefBounds = exactClefBounds(lookup)
+        val timeSignatureBounds = exactTimeSignatureBounds(lookup)
         val barlineBounds = exactBarlineBounds(lookup)
+        val measureBounds = exactMeasureBounds(lookup)
+        val emptyBar = ExactElementHitTester.findUnique(rendererX, rendererY, measureBounds)
+        val insertionRest = emptyBar?.let { bar ->
+            bar.voices.asSequence().flatMap { it.beats.asSequence() }
+                .filter { it.isRest && !it.isEmpty }
+                .minByOrNull { beat ->
+                    val beatBounds = lookup.findBeats(beat)?.asSequence()
+                        ?.firstOrNull { it.barBounds.bar === bar }
+                    val center = beatBounds?.onNotesX ?: Double.POSITIVE_INFINITY
+                    kotlin.math.abs(rendererX - center)
+                }
+        }
         val hit = when {
             note != null -> AlphaTabSelectionHit.NoteHit(note)
             else -> ExactElementHitTester.findUnique(rendererX, rendererY, restBounds)
-                ?.let(AlphaTabSelectionHit::RestHit)
+                ?.let { rest ->
+                    val pitch = insertionPitch(rest.voice.bar, rendererY)
+                    AlphaTabSelectionHit.RestHit(rest, pitch.step, pitch.octave, pitch.staffStepIndex)
+                }
                 ?: ExactElementHitTester.findUnique(rendererX, rendererY, clefBounds)
                     ?.let(AlphaTabSelectionHit::ClefHit)
+                ?: ExactElementHitTester.findUnique(rendererX, rendererY, timeSignatureBounds)
+                    ?.let(AlphaTabSelectionHit::TimeSignatureHit)
                 ?: ExactElementHitTester.findUnique(rendererX, rendererY, barlineBounds)
                     ?.let { AlphaTabSelectionHit.BarlineHit(it.bar, it.side) }
+                ?: insertionRest?.let { rest ->
+                    val pitch = insertionPitch(rest.voice.bar, rendererY)
+                    AlphaTabSelectionHit.RestHit(rest, pitch.step, pitch.octave, pitch.staffStepIndex)
+                }
                 ?: AlphaTabSelectionHit.Empty
         }
-        logHitDiagnostic(rendererX, rendererY, hit, noteBounds, restBounds, clefBounds, barlineBounds)
+        logHitDiagnostic(rendererX, rendererY, hit, noteBounds, restBounds, clefBounds, timeSignatureBounds, barlineBounds)
         onSelectionHit(hit)
     }
 
@@ -723,6 +756,65 @@ internal class StableAlphaTabView @JvmOverloads constructor(
             SelectionPointerGeometry.below(RendererRect(it.x, it.y, it.w, it.h))
         }
         surface.setSelectionPointer(pointer)
+    }
+
+    private fun updateInsertionCursor() {
+        val cursor = insertionCursor
+        val lookup = renderer?.boundsLookup?.takeIf { it.isFinished }
+        if (cursor == null || lookup == null) {
+            surface.setInsertionCursor(null)
+            return
+        }
+        val beatBounds = lookup.findBeats(cursor.beat)?.asSequence()?.firstOrNull()
+        val bar = cursor.beat.voice.bar
+        val barRenderer = rendererForBar(bar)
+        val bounds = barBounds(lookup, bar)?.realBounds
+        if (beatBounds == null || barRenderer == null || bounds == null) {
+            surface.setInsertionCursor(null)
+            return
+        }
+        val lineHeight = (invokeMethod(barRenderer, "getLineHeight", 1.0) as? Number)?.toDouble()
+        val topPadding = doubleValue(barRenderer, "getTopPadding")
+        if (lineHeight == null || !lineHeight.isFinite() || lineHeight <= 0.0 || !topPadding.isFinite()) {
+            surface.setInsertionCursor(null)
+            return
+        }
+        val bottomLineY = bounds.y + topPadding + lineHeight * 4.0
+        surface.setInsertionCursor(
+            InsertionCursorGeometry(
+                x = beatBounds.onNotesX,
+                y = bottomLineY - cursor.staffStepIndex * lineHeight / 2.0
+            )
+        )
+    }
+
+    private data class InsertionPitch(val step: String, val octave: Int, val staffStepIndex: Int)
+
+    private fun insertionPitch(bar: Bar, rendererY: Double): InsertionPitch {
+        val lookup = renderer?.boundsLookup?.takeIf { it.isFinished }
+        val barRenderer = rendererForBar(bar)
+        val bounds = lookup?.let { barBounds(it, bar)?.realBounds }
+        val lineHeight = barRenderer?.let { (invokeMethod(it, "getLineHeight", 1.0) as? Number)?.toDouble() }
+        val topPadding = barRenderer?.let { doubleValue(it, "getTopPadding") }
+        if (bounds == null || lineHeight == null || !lineHeight.isFinite() || lineHeight <= 0.0 ||
+            topPadding == null || !topPadding.isFinite()
+        ) return InsertionPitch("C", 4, 0)
+        val bottomLineY = bounds.y + topPadding + lineHeight * 4.0
+        val staffStep = ((bottomLineY - rendererY) / (lineHeight / 2.0)).roundToInt().coerceIn(-16, 24)
+        val bottomNatural = when (bar.clef) {
+            alphaTab.model.Clef.G2 -> 4 * 7 + 2 // E4
+            alphaTab.model.Clef.F4 -> 2 * 7 + 4 // G2
+            alphaTab.model.Clef.C3 -> 3 * 7 + 3 // F3
+            alphaTab.model.Clef.C4 -> 3 * 7 + 1 // D3
+            else -> 4 * 7 // C4 fallback
+        }
+        val absolute = bottomNatural + staffStep
+        val steps = arrayOf("C", "D", "E", "F", "G", "A", "B")
+        return InsertionPitch(
+            step = steps[Math.floorMod(absolute, 7)],
+            octave = Math.floorDiv(absolute, 7),
+            staffStepIndex = staffStep
+        )
     }
 
     private fun allNoteHeadBounds(
@@ -817,6 +909,20 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         allScoreBars().forEach { bar ->
             if (identityMapping?.clefIdentity(bar) == null) return@forEach
             glyphCandidates(lookup, bar, "ClefGlyph").flatMap { it.rects }.forEach { rect ->
+                add(ExactElementBounds(bar, rect.x, rect.y, rect.width, rect.height))
+            }
+        }
+    }
+
+    private fun exactTimeSignatureBounds(
+        lookup: alphaTab.rendering.utils.BoundsLookup
+    ): List<ExactElementBounds<Bar>> = buildList {
+        allScoreBars().forEach { bar ->
+            if (identityMapping?.timeSignatureIdentity(bar) == null) return@forEach
+            listOf("ScoreTimeSignatureGlyph", "TimeSignatureGlyph")
+                .flatMap { glyphCandidates(lookup, bar, it) }
+                .distinctBy { it.centerX }
+                .flatMap { it.rects }.forEach { rect ->
                 add(ExactElementBounds(bar, rect.x, rect.y, rect.width, rect.height))
             }
         }
@@ -1100,6 +1206,10 @@ internal class StableAlphaTabView @JvmOverloads constructor(
             is AlphaTabRenderSelection.ClefSelection -> styleBars(
                 nextSelection.bars,
                 BarSubElement.StandardNotationClef
+            )
+            is AlphaTabRenderSelection.TimeSignatureSelection -> styleBars(
+                nextSelection.bars,
+                BarSubElement.StandardNotationTimeSignature
             )
             is AlphaTabRenderSelection.BarlineSelection -> styleBars(
                 nextSelection.bars,
@@ -1452,6 +1562,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         notes: List<ExactNoteHeadBounds<Note>>,
         rests: List<ExactElementBounds<Beat>>,
         clefs: List<ExactElementBounds<Bar>>,
+        timeSignatures: List<ExactElementBounds<Bar>>,
         barlines: List<ExactElementBounds<BarlineRenderTarget>>
     ) {
         fun contains(x: Double, y: Double, bx: Double, by: Double, w: Double, h: Double) =
@@ -1459,6 +1570,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         val overlaps = notes.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
             rests.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
             clefs.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
+            timeSignatures.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) } +
             barlines.count { contains(rendererX, rendererY, it.x, it.y, it.width, it.height) }
         val mapping = identityMapping
         val description = when (hit) {
@@ -1467,6 +1579,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
             is AlphaTabSelectionHit.ChordHit -> "type=chord identity=${mapping?.chordIdentity(hit.beat)?.value} ${elementIndexes(hit.beat)}"
             is AlphaTabSelectionHit.RestHit -> "type=rest identity=${mapping?.restIdentity(hit.beat)?.value} ${elementIndexes(hit.beat)}"
             is AlphaTabSelectionHit.ClefHit -> "type=clef identity=${mapping?.clefIdentity(hit.bar)?.value} ${elementIndexes(hit.bar)}"
+            is AlphaTabSelectionHit.TimeSignatureHit -> "type=time-signature identity=${mapping?.timeSignatureIdentity(hit.bar)?.value} ${elementIndexes(hit.bar)}"
             is AlphaTabSelectionHit.BarlineHit -> "type=barline-${hit.side.name.lowercase()} identity=${mapping?.barlineIdentity(hit.bar, hit.side)?.value} ${elementIndexes(hit.bar)}"
             is AlphaTabSelectionHit.MeasureHit -> "type=measure identity=${mapping?.measureIdentity(hit.bar)?.value} ${elementIndexes(hit.bar)}"
         }
@@ -1682,6 +1795,7 @@ internal class StableAlphaTabView @JvmOverloads constructor(
         renderScheduled = false
         applySelectionStyle(null)
         surface.setSelectionPointer(null)
+        surface.setInsertionCursor(null)
         activeLocalizedRenderers.forEach(ScoreRenderer::destroy)
         activeLocalizedRenderers.clear()
         renderer?.destroy()
@@ -1702,6 +1816,7 @@ private class StableScoreSurface(context: Context) : View(context) {
     private var noteDrag: NoteDragStart? = null
     private var noteDragSteps = 0
     private var selectionPointer: SelectionPointerAnchor? = null
+    private var insertionCursor: InsertionCursorGeometry? = null
     private val selectionPointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = SELECTED_POINTER_COLOR
         style = Paint.Style.FILL
@@ -1716,16 +1831,28 @@ private class StableScoreSurface(context: Context) : View(context) {
         strokeWidth = resources.displayMetrics.density
         style = Paint.Style.STROKE
     }
+    private val insertionCursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = SELECTED_POINTER_COLOR
+        strokeWidth = resources.displayMetrics.density * 2f
+        style = Paint.Style.STROKE
+    }
     var onTap: (Float, Float) -> Unit = { _, _ -> }
     var onNoteDragStart: (Float, Float) -> NoteDragStart? = { _, _ -> null }
     var onNoteDragFinished: (Int) -> Unit = {}
 
     val selectionPointerRendered: Boolean get() = selectionPointer != null
+    val insertionCursorRendered: Boolean get() = insertionCursor != null
     val selectionPointerForTest: SelectionPointerAnchor? get() = selectionPointer
 
     fun setSelectionPointer(pointer: SelectionPointerAnchor?) {
         if (selectionPointer == pointer) return
         selectionPointer = pointer
+        postInvalidate()
+    }
+
+    fun setInsertionCursor(cursor: InsertionCursorGeometry?) {
+        if (insertionCursor == cursor) return
+        insertionCursor = cursor
         postInvalidate()
     }
 
@@ -1856,6 +1983,14 @@ private class StableScoreSurface(context: Context) : View(context) {
                     null
                 )
             }
+        }
+        insertionCursor?.let { cursor ->
+            val density = resources.displayMetrics.density
+            val x = (cursor.x * density).toFloat()
+            val y = (cursor.y * density).toFloat()
+            val halfHeight = 16f * density
+            canvas.drawLine(x, y - halfHeight, x, y + halfHeight, insertionCursorPaint)
+            canvas.drawCircle(x, y, 5f * density, insertionCursorPaint)
         }
         selectionPointer?.let { pointer ->
             val density = resources.displayMetrics.density

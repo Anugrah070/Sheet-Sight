@@ -8,6 +8,7 @@ import org.w3c.dom.Element
 @JvmInline value class ChordIdentity(val value: String)
 @JvmInline value class RestIdentity(val value: String)
 @JvmInline value class ClefIdentity(val value: String)
+@JvmInline value class TimeSignatureIdentity(val value: String)
 @JvmInline value class BarlineIdentity(val value: String)
 
 enum class BarlineSide { LEFT, RIGHT, MIDDLE }
@@ -32,6 +33,7 @@ data class EditableMeasureRef(
     val divisions: Int,
     val events: List<EditableScoreEventRef>,
     val clefs: List<EditableClefRef> = emptyList(),
+    val timeSignatures: List<EditableTimeSignatureRef> = emptyList(),
     val barlines: List<EditableBarlineRef> = emptyList()
 ) : EditableScoreElementRef
 
@@ -43,6 +45,17 @@ data class EditableClefRef(
     val onsetDivisions: Int,
     val sign: String?,
     val line: Int?
+) : EditableScoreElementRef
+
+data class EditableTimeSignatureRef(
+    val identity: TimeSignatureIdentity,
+    override val source: MusicXmlElementRef,
+    val staff: Int,
+    val occurrenceInMeasure: Int,
+    val onsetDivisions: Int,
+    val beats: Int,
+    val beatType: Int,
+    val symbol: String? = null
 ) : EditableScoreElementRef
 
 data class EditableBarlineRef(
@@ -58,6 +71,7 @@ sealed interface EditableScoreEventRef : EditableScoreElementRef {
     val voice: Int
     val eventOrdinalInVoice: Int
     val onsetDivisions: Int
+    val durationDivisions: Int
     val isGrace: Boolean
 }
 
@@ -68,6 +82,7 @@ data class EditableChordRef(
     override val voice: Int,
     override val eventOrdinalInVoice: Int,
     override val onsetDivisions: Int,
+    override val durationDivisions: Int,
     override val isGrace: Boolean,
     val notes: List<EditableNoteRef>
 ) : EditableScoreEventRef
@@ -87,6 +102,7 @@ data class EditableRestRef(
     override val voice: Int,
     override val eventOrdinalInVoice: Int,
     override val onsetDivisions: Int,
+    override val durationDivisions: Int,
     override val isGrace: Boolean
 ) : EditableScoreEventRef
 
@@ -100,6 +116,7 @@ data class EditableScoreIdentityIndex(
     val chords: List<EditableChordRef> = measures.flatMap { it.events.filterIsInstance<EditableChordRef>() }
     val rests: List<EditableRestRef> = measures.flatMap { it.events.filterIsInstance<EditableRestRef>() }
     val clefs: List<EditableClefRef> = measures.flatMap { it.clefs }
+    val timeSignatures: List<EditableTimeSignatureRef> = measures.flatMap { it.timeSignatures }
     val barlines: List<EditableBarlineRef> = measures.flatMap { it.barlines }
 }
 
@@ -138,9 +155,11 @@ object MusicXmlIdentityBuilder {
                 val lastOnsetByVoice = mutableMapOf<Pair<Int, Int>, Int>()
                 val events = mutableListOf<EditableScoreEventRef>()
                 val clefs = mutableListOf<EditableClefRef>()
+                val timeSignatures = mutableListOf<EditableTimeSignatureRef>()
                 var measureCursor = 0
                 var noteIndex = 0
                 var clefOccurrence = 0
+                var timeOccurrence = 0
 
                 measure.directElements().forEach { child ->
                     when (child.tagName) {
@@ -176,6 +195,41 @@ object MusicXmlIdentityBuilder {
                                     sign = clef.directChild("sign")?.textContent?.trim()?.uppercase(),
                                     line = clef.directChild("line")?.textContent?.trim()?.toIntOrNull()
                                 )
+                            }
+                            child.directChildren("time").forEach { time ->
+                                val occurrence = timeOccurrence++
+                                val beats = time.directChild("beats")?.textContent?.trim()?.toIntOrNull()
+                                val beatType = time.directChild("beat-type")?.textContent?.trim()?.toIntOrNull()
+                                if (beats != null && beats > 0 && beatType != null && beatType > 0) {
+                                    val staff = time.getAttribute("number").trim().toIntOrNull()
+                                        ?.takeIf { it > 0 } ?: 1
+                                    val explicitId = time.getAttribute("id").ifBlank { null }
+                                    val source = MusicXmlElementRef(
+                                        partIndex = partIndex,
+                                        partId = partId,
+                                        measureIndex = measureIndex,
+                                        measureNumber = number,
+                                        elementOccurrenceIndex = occurrence,
+                                        explicitId = explicitId
+                                    )
+                                    timeSignatures += EditableTimeSignatureRef(
+                                        identity = TimeSignatureIdentity(
+                                            stableId(
+                                                scoreId,
+                                                explicitId,
+                                                "time",
+                                                "score/$scoreId/part/$partIndex/measure/$measureIndex/staff/$staff/time/$occurrence"
+                                            )
+                                        ),
+                                        source = source,
+                                        staff = staff,
+                                        occurrenceInMeasure = occurrence,
+                                        onsetDivisions = measureCursor,
+                                        beats = beats,
+                                        beatType = beatType,
+                                        symbol = time.getAttribute("symbol").ifBlank { null }
+                                    )
+                                }
                             }
                         }
                         "backup" -> measureCursor = (measureCursor - child.durationDivisions()).coerceAtLeast(0)
@@ -224,6 +278,7 @@ object MusicXmlIdentityBuilder {
                             voice = voice,
                             eventOrdinalInVoice = ordinal,
                             onsetDivisions = onset,
+                            durationDivisions = duration,
                             isGrace = isGrace
                         )
                         eventCounts[voiceKey] = ordinal + 1
@@ -263,6 +318,7 @@ object MusicXmlIdentityBuilder {
                                 voice = voice,
                                 eventOrdinalInVoice = ordinal,
                                 onsetDivisions = onset,
+                                durationDivisions = duration,
                                 isGrace = isGrace,
                                 notes = listOf(
                                     EditableNoteRef(
@@ -347,6 +403,7 @@ object MusicXmlIdentityBuilder {
                     divisions = currentDivisions,
                     events = events.toList(),
                     clefs = clefs.toList(),
+                    timeSignatures = timeSignatures.toList(),
                     barlines = barlines
                 )
             }

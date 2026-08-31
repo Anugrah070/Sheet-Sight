@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,6 +49,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +63,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +85,7 @@ import android.content.res.Configuration
 import android.util.Log
 import com.sheetsight.app.ui.editor.identity.AlphaTabIdentityMapper
 import com.sheetsight.app.ui.editor.identity.AlphaTabIdentityMapping
+import com.sheetsight.app.ui.editor.identity.MeasureIdentity
 
 @Composable
 fun EditorScreen(
@@ -107,6 +120,12 @@ fun EditorScreen(
         onRenderError = viewModel::onRenderError,
         onSelectionChanged = viewModel::onSelectionChanged,
         onNoteDragBy = viewModel::moveSelectedNoteBy,
+        onDeleteSelection = viewModel::deleteSelection,
+        onInsertNote = viewModel::insertNote,
+        onReplaceClef = viewModel::replaceSelectedClef,
+        onInsertClef = viewModel::insertClef,
+        onReplaceTimeSignature = viewModel::replaceSelectedTimeSignature,
+        onInsertTimeSignature = viewModel::insertTimeSignature,
         onSystemChanged = viewModel::onSystemChanged,
         onZoomChanged = viewModel::onZoomChanged,
         onBack = onBack
@@ -139,6 +158,12 @@ fun EditorScreenContent(
     onRenderError: (EditorSourceKey, String) -> Unit = { _, _ -> },
     onSelectionChanged: (EditorSelection?) -> Unit = {},
     onNoteDragBy: (Int) -> Unit = {},
+    onDeleteSelection: () -> Unit = {},
+    onInsertNote: (NoteInsertionAnchor, EditorNoteDuration, String, Int) -> Unit = { _, _, _, _ -> },
+    onReplaceClef: (EditorClef) -> Unit = {},
+    onInsertClef: (MeasureIdentity, EditorClef, Int) -> Unit = { _, _, _ -> },
+    onReplaceTimeSignature: (EditorTimeSignature) -> Unit = {},
+    onInsertTimeSignature: (MeasureIdentity, EditorTimeSignature, Int) -> Unit = { _, _, _ -> },
     onSystemChanged: (Int) -> Unit = {},
     onZoomChanged: (Float) -> Unit = {},
     onBack: () -> Unit = {}
@@ -154,6 +179,7 @@ fun EditorScreenContent(
             EditorFeedback.GeneratedScoreDeleted -> "Generated score deleted."
             is EditorFeedback.DeleteFailed -> current.message
             is EditorFeedback.PitchEditFailed -> current.message
+            is EditorFeedback.EditFailed -> current.message
         }
         snackbarHostState.showSnackbar(message)
         onFeedbackShown()
@@ -264,6 +290,12 @@ fun EditorScreenContent(
                     noteEditInProgress = noteEditInProgress,
                     pitchVisualUpdate = pitchVisualUpdate,
                     onNoteDragBy = onNoteDragBy,
+                    onDeleteSelection = onDeleteSelection,
+                    onInsertNote = onInsertNote,
+                    onReplaceClef = onReplaceClef,
+                    onInsertClef = onInsertClef,
+                    onReplaceTimeSignature = onReplaceTimeSignature,
+                    onInsertTimeSignature = onInsertTimeSignature,
                     onZoomGestureFinished = { gestureScale ->
                         scale = gestureScale.coerceIn(EditorViewModel.MIN_ZOOM, EditorViewModel.MAX_ZOOM)
                         onZoomChanged(scale)
@@ -552,6 +584,12 @@ private fun ReadyScore(
     noteEditInProgress: Boolean,
     pitchVisualUpdate: EditorPitchVisualUpdate?,
     onNoteDragBy: (Int) -> Unit,
+    onDeleteSelection: () -> Unit,
+    onInsertNote: (NoteInsertionAnchor, EditorNoteDuration, String, Int) -> Unit,
+    onReplaceClef: (EditorClef) -> Unit,
+    onInsertClef: (MeasureIdentity, EditorClef, Int) -> Unit,
+    onReplaceTimeSignature: (EditorTimeSignature) -> Unit,
+    onInsertTimeSignature: (MeasureIdentity, EditorTimeSignature, Int) -> Unit,
     onZoomGestureFinished: (Float) -> Unit
 ) {
     var importedScore by remember(ready.renderSessionKey) { mutableStateOf<ImportedAlphaTabScore?>(null) }
@@ -585,11 +623,33 @@ private fun ReadyScore(
             }
         }
     }
+    var insertion by remember(ready.scoreId) { mutableStateOf<EditorInsertionState?>(null) }
+    var noteDuration by remember(ready.scoreId) { mutableStateOf(EditorNoteDuration.QUARTER) }
+    val renderInsertion = identityMapping?.let { mapping ->
+        insertion?.let { cursor ->
+            mapping.rest(cursor.anchor.restIdentity)?.let { beat ->
+                AlphaTabRenderInsertionCursor(beat, cursor.staffStepIndex)
+            }
+        }
+    }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(selection) { if (selection != null) focusRequester.requestFocus() }
 
     Column(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surface)
             .testTag("editor_ready")
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Backspace || event.key == Key.Delete) &&
+                    (selection is EditorSelection.NoteSelection || selection is EditorSelection.ClefSelection)
+                ) {
+                    onDeleteSelection()
+                    true
+                } else false
+            }
     ) {
         EditorPlaybackTransport(
             state = playbackState,
@@ -599,6 +659,26 @@ private fun ReadyScore(
                 playbackState = EditorPlaybackState.Initializing
                 playbackGeneration++
             }
+        )
+
+        EditorContextToolbar(
+            selection = selection,
+            insertion = insertion,
+            selectedDuration = noteDuration,
+            busy = noteEditInProgress,
+            measureIdentity = selection.measureIdentity(ready),
+            onDurationChanged = { noteDuration = it },
+            onInsert = {
+                insertion?.let { cursor ->
+                    onInsertNote(cursor.anchor, noteDuration, cursor.pitchStep, cursor.pitchOctave)
+                    insertion = null
+                }
+            },
+            onDelete = onDeleteSelection,
+            onReplaceClef = onReplaceClef,
+            onInsertClef = { measure, clef -> onInsertClef(measure, clef, 1) },
+            onReplaceTimeSignature = onReplaceTimeSignature,
+            onInsertTimeSignature = { measure, time -> onInsertTimeSignature(measure, time, 1) }
         )
 
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -613,6 +693,7 @@ private fun ReadyScore(
                 onRenderError = { message -> onRenderError(ready.sourceKey, message) },
                 identityMapping = identityMapping,
                 selection = renderSelection,
+                insertionCursor = renderInsertion,
                 pitchVisualUpdate = runtimePitchUpdate,
                 onSelectionHit = { hit ->
                     val mapping = identityMapping
@@ -629,7 +710,24 @@ private fun ReadyScore(
                         resolution.diagnostic?.let { diagnostic ->
                             Log.w("SheetSightIdentity", "Selection rejected: $diagnostic")
                         }
-                        onSelectionChanged(resolution.selection)
+                        if (hit is AlphaTabSelectionHit.RestHit && resolution.selection is EditorSelection.RestSelection) {
+                            val next = EditorInsertionState(
+                                anchor = NoteInsertionAnchor(resolution.selection.rest.identity),
+                                pitchStep = hit.pitchStep,
+                                pitchOctave = hit.pitchOctave,
+                                staffStepIndex = hit.staffStepIndex
+                            )
+                            if (insertion?.anchor == next.anchor) {
+                                onInsertNote(next.anchor, noteDuration, next.pitchStep, next.pitchOctave)
+                                insertion = null
+                            } else {
+                                insertion = next
+                                onSelectionChanged(resolution.selection)
+                            }
+                        } else {
+                            insertion = null
+                            onSelectionChanged(resolution.selection)
+                        }
                     }
                 },
                 onZoomGestureFinished = onZoomGestureFinished,
@@ -680,7 +778,7 @@ private fun ReadyScore(
                         update = { view ->
                             val player = view.tag as EditorAlphaTabPlaybackPlayer
                             playbackCommands.player = player
-                            player.loadScore(ready.renderSessionKey, score.score)
+                            player.loadScore("${ready.renderSessionKey}|${ready.musicXml.hashCode()}", score.score)
                         },
                         onRelease = { view ->
                             val player = view.tag as? EditorAlphaTabPlaybackPlayer
@@ -689,6 +787,226 @@ private fun ReadyScore(
                         }
                     )
                 }
+            }
+        }
+    }
+}
+
+private data class EditorInsertionState(
+    val anchor: NoteInsertionAnchor,
+    val pitchStep: String,
+    val pitchOctave: Int,
+    val staffStepIndex: Int
+)
+
+private fun EditorSelection?.measureIdentity(ready: EditorUiState.Ready): MeasureIdentity? {
+    val source = when (this) {
+        is EditorSelection.NoteSelection -> note.source
+        is EditorSelection.ChordSelection -> chord.source
+        is EditorSelection.RestSelection -> rest.source
+        is EditorSelection.ClefSelection -> clef.source
+        is EditorSelection.TimeSignatureSelection -> timeSignature.source
+        is EditorSelection.BarlineSelection -> barline.source
+        is EditorSelection.MeasureSelection -> measure.source
+        null -> return null
+    }
+    return ready.identityIndex.measures.singleOrNull {
+        it.source.partIndex == source.partIndex && it.source.measureIndex == source.measureIndex
+    }?.identity
+}
+
+@Composable
+private fun EditorContextToolbar(
+    selection: EditorSelection?,
+    insertion: EditorInsertionState?,
+    selectedDuration: EditorNoteDuration,
+    busy: Boolean,
+    measureIdentity: MeasureIdentity?,
+    onDurationChanged: (EditorNoteDuration) -> Unit,
+    onInsert: () -> Unit,
+    onDelete: () -> Unit,
+    onReplaceClef: (EditorClef) -> Unit,
+    onInsertClef: (MeasureIdentity, EditorClef) -> Unit,
+    onReplaceTimeSignature: (EditorTimeSignature) -> Unit,
+    onInsertTimeSignature: (MeasureIdentity, EditorTimeSignature) -> Unit
+) {
+    val showMeasureTools = measureIdentity != null && selection !is EditorSelection.NoteSelection
+    if (selection == null && insertion == null) return
+    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth().testTag("editor_context_toolbar")) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp)) {
+            if (insertion != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    EditorNoteDuration.entries.forEach { duration ->
+                        val label = when (duration) {
+                            EditorNoteDuration.WHOLE -> "W"
+                            EditorNoteDuration.HALF -> "H"
+                            EditorNoteDuration.QUARTER -> "Q"
+                            EditorNoteDuration.EIGHTH -> "E"
+                            EditorNoteDuration.SIXTEENTH -> "S"
+                        }
+                        TextButton(
+                            onClick = { onDurationChanged(duration) },
+                            enabled = !busy,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .semantics { contentDescription = "${duration.name.lowercase()} note" }
+                                .testTag("editor_duration_${duration.name.lowercase()}")
+                        ) {
+                            Text(
+                                label,
+                                color = if (duration == selectedDuration) {
+                                    MaterialTheme.colorScheme.primary
+                                } else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = onInsert,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("editor_insert_note")
+                    ) { Text("Insert ${insertion.pitchStep}${insertion.pitchOctave}") }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (selection is EditorSelection.NoteSelection || selection is EditorSelection.ClefSelection) {
+                    TextButton(
+                        onClick = onDelete,
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("editor_delete_selection")
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete selected notation")
+                        Text("Delete")
+                    }
+                }
+                if (selection is EditorSelection.ClefSelection || showMeasureTools) {
+                    ClefChooser(
+                        current = (selection as? EditorSelection.ClefSelection)?.clef?.let {
+                            EditorClef.from(it.sign, it.line)
+                        },
+                        enabled = !busy,
+                        onChoose = { clef ->
+                            if (selection is EditorSelection.ClefSelection) onReplaceClef(clef)
+                            else measureIdentity?.let { onInsertClef(it, clef) }
+                        }
+                    )
+                }
+                if (selection is EditorSelection.TimeSignatureSelection || showMeasureTools) {
+                    TimeSignatureChooser(
+                        current = (selection as? EditorSelection.TimeSignatureSelection)?.timeSignature?.let {
+                            EditorTimeSignature(it.beats, it.beatType, it.symbol)
+                        },
+                        enabled = !busy,
+                        onChoose = { time ->
+                            if (selection is EditorSelection.TimeSignatureSelection) onReplaceTimeSignature(time)
+                            else measureIdentity?.let { onInsertTimeSignature(it, time) }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClefChooser(current: EditorClef?, enabled: Boolean, onChoose: (EditorClef) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("editor_clef_action")
+        ) { Text("Clef") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            EditorClef.entries.forEach { clef ->
+                TextButton(
+                    onClick = { expanded = false; onChoose(clef) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Choose ${clef.name.lowercase()} clef" }
+                        .testTag("editor_clef_${clef.name.lowercase()}")
+                ) {
+                    Text(
+                        clef.name.lowercase().replaceFirstChar { it.titlecase() },
+                        color = if (clef == current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimeSignatureChooser(
+    current: EditorTimeSignature?,
+    enabled: Boolean,
+    onChoose: (EditorTimeSignature) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var numerator by remember(current) { mutableStateOf(current?.beats?.toString() ?: "4") }
+    var denominator by remember(current) { mutableStateOf(current?.beatType?.toString() ?: "4") }
+    Box {
+        TextButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("editor_time_signature_action")
+        ) { Text("Time Signature") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            (EditorTimeSignature.PRESETS + EditorTimeSignature.COMMON + EditorTimeSignature.CUT).forEach { time ->
+                val label = when (time.symbol) {
+                    "common" -> "Common time"
+                    "cut" -> "Cut time"
+                    else -> "${time.beats}/${time.beatType}"
+                }
+                TextButton(
+                    onClick = { expanded = false; onChoose(time) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Choose $label" }
+                        .testTag("editor_time_${time.symbol ?: "${time.beats}_${time.beatType}"}")
+                ) {
+                    Text(label, color = if (time == current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                }
+            }
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                OutlinedTextField(
+                    value = numerator,
+                    onValueChange = { numerator = it.filter(Char::isDigit).take(2) },
+                    label = { Text("Beats") },
+                    singleLine = true,
+                    modifier = Modifier.width(82.dp).testTag("editor_time_custom_numerator")
+                )
+                Text("/")
+                OutlinedTextField(
+                    value = denominator,
+                    onValueChange = { denominator = it.filter(Char::isDigit).take(2) },
+                    label = { Text("Unit") },
+                    singleLine = true,
+                    modifier = Modifier.width(82.dp).testTag("editor_time_custom_denominator")
+                )
+                TextButton(
+                    onClick = {
+                        val beats = numerator.toIntOrNull()
+                        val beatType = denominator.toIntOrNull()
+                        if (beats != null && beatType != null) {
+                            runCatching { EditorTimeSignature(beats, beatType) }.getOrNull()?.let {
+                                expanded = false
+                                onChoose(it)
+                            }
+                        }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("editor_time_custom_apply")
+                ) { Text("Apply") }
             }
         }
     }

@@ -52,6 +52,7 @@ class AlphaTabIdentityMapping internal constructor(
     val restRefs: Map<RestIdentity, AlphaTabElementRef>,
     val measureRefs: Map<MeasureIdentity, List<AlphaTabElementRef>>,
     val clefRefs: Map<ClefIdentity, List<AlphaTabElementRef>>,
+    val timeSignatureRefs: Map<TimeSignatureIdentity, List<AlphaTabElementRef>>,
     val barlineRefs: Map<BarlineIdentity, List<AlphaTabElementRef>>,
     val issues: List<AlphaTabMappingIssue>,
     private val notesByObject: IdentityHashMap<Note, NoteIdentity>,
@@ -59,12 +60,14 @@ class AlphaTabIdentityMapping internal constructor(
     private val restsByObject: IdentityHashMap<Beat, RestIdentity>,
     private val measuresByObject: IdentityHashMap<Bar, MeasureIdentity>,
     private val clefsByObject: IdentityHashMap<Bar, ClefIdentity>,
+    private val timeSignaturesByObject: IdentityHashMap<Bar, TimeSignatureIdentity>,
     private val barlinesByObject: IdentityHashMap<Bar, Map<BarlineSide, BarlineIdentity>>,
     private val notesByIdentity: Map<NoteIdentity, Note>,
     private val chordsByIdentity: Map<ChordIdentity, Beat>,
     private val restsByIdentity: Map<RestIdentity, Beat>,
     private val measuresByIdentity: Map<MeasureIdentity, List<Bar>>,
     private val clefsByIdentity: Map<ClefIdentity, List<Bar>>,
+    private val timeSignaturesByIdentity: Map<TimeSignatureIdentity, List<Bar>>,
     private val barlinesByIdentity: Map<BarlineIdentity, List<Bar>>
 ) {
     fun noteIdentity(note: Note): NoteIdentity? = notesByObject[note]
@@ -72,12 +75,14 @@ class AlphaTabIdentityMapping internal constructor(
     fun restIdentity(beat: Beat): RestIdentity? = restsByObject[beat]
     fun measureIdentity(bar: Bar): MeasureIdentity? = measuresByObject[bar]
     fun clefIdentity(bar: Bar): ClefIdentity? = clefsByObject[bar]
+    fun timeSignatureIdentity(bar: Bar): TimeSignatureIdentity? = timeSignaturesByObject[bar]
     fun barlineIdentity(bar: Bar, side: BarlineSide): BarlineIdentity? = barlinesByObject[bar]?.get(side)
     fun note(identity: NoteIdentity): Note? = notesByIdentity[identity]
     fun chord(identity: ChordIdentity): Beat? = chordsByIdentity[identity]
     fun rest(identity: RestIdentity): Beat? = restsByIdentity[identity]
     fun measure(identity: MeasureIdentity): List<Bar> = measuresByIdentity[identity].orEmpty()
     fun clef(identity: ClefIdentity): List<Bar> = clefsByIdentity[identity].orEmpty()
+    fun timeSignature(identity: TimeSignatureIdentity): List<Bar> = timeSignaturesByIdentity[identity].orEmpty()
     fun barline(identity: BarlineIdentity): List<Bar> = barlinesByIdentity[identity].orEmpty()
     val isComplete: Boolean get() = issues.isEmpty()
 }
@@ -95,20 +100,24 @@ object AlphaTabIdentityMapper {
         val restRefs = linkedMapOf<RestIdentity, AlphaTabElementRef>()
         val measureRefs = linkedMapOf<MeasureIdentity, MutableList<AlphaTabElementRef>>()
         val clefRefs = linkedMapOf<ClefIdentity, MutableList<AlphaTabElementRef>>()
+        val timeSignatureRefs = linkedMapOf<TimeSignatureIdentity, MutableList<AlphaTabElementRef>>()
         val barlineRefs = linkedMapOf<BarlineIdentity, MutableList<AlphaTabElementRef>>()
         val notesByObject = IdentityHashMap<Note, NoteIdentity>()
         val chordsByObject = IdentityHashMap<Beat, ChordIdentity>()
         val restsByObject = IdentityHashMap<Beat, RestIdentity>()
         val measuresByObject = IdentityHashMap<Bar, MeasureIdentity>()
         val clefsByObject = IdentityHashMap<Bar, ClefIdentity>()
+        val timeSignaturesByObject = IdentityHashMap<Bar, TimeSignatureIdentity>()
         val barlinesByObject = IdentityHashMap<Bar, Map<BarlineSide, BarlineIdentity>>()
         val notesByIdentity = linkedMapOf<NoteIdentity, Note>()
         val chordsByIdentity = linkedMapOf<ChordIdentity, Beat>()
         val restsByIdentity = linkedMapOf<RestIdentity, Beat>()
         val measuresByIdentity = linkedMapOf<MeasureIdentity, MutableList<Bar>>()
         val clefsByIdentity = linkedMapOf<ClefIdentity, MutableList<Bar>>()
+        val timeSignaturesByIdentity = linkedMapOf<TimeSignatureIdentity, MutableList<Bar>>()
         val barlinesByIdentity = linkedMapOf<BarlineIdentity, MutableList<Bar>>()
         val activeClef = mutableMapOf<Pair<Int, Int>, ClefIdentity>()
+        val activeTimeSignature = mutableMapOf<Pair<Int, Int>, TimeSignatureIdentity>()
         val issues = mutableListOf<AlphaTabMappingIssue>()
 
         source.measures.forEach { measure ->
@@ -173,6 +182,22 @@ object AlphaTabIdentityMapper {
                     clefRefs.getOrPut(currentClef) { mutableListOf() } += barRef
                     clefsByObject[bar] = currentClef
                     clefsByIdentity.getOrPut(currentClef) { mutableListOf() } += bar
+                }
+
+                val startTimes = measure.timeSignatures.filter {
+                    it.staff == staffNumber && it.onsetDivisions == 0
+                }
+                val currentTime = when {
+                    startTimes.size == 1 -> startTimes.single().identity.also {
+                        activeTimeSignature[measure.source.partIndex to staffNumber] = it
+                    }
+                    startTimes.size > 1 -> null
+                    else -> activeTimeSignature[measure.source.partIndex to staffNumber]
+                }
+                if (currentTime != null) {
+                    timeSignatureRefs.getOrPut(currentTime) { mutableListOf() } += barRef
+                    timeSignaturesByObject[bar] = currentTime
+                    timeSignaturesByIdentity.getOrPut(currentTime) { mutableListOf() } += bar
                 }
 
                 val barlineIdentities = linkedMapOf<BarlineSide, BarlineIdentity>()
@@ -305,6 +330,7 @@ object AlphaTabIdentityMapper {
             restRefs = restRefs.toMap(),
             measureRefs = measureRefs.mapValues { it.value.toList() },
             clefRefs = clefRefs.mapValues { it.value.toList() },
+            timeSignatureRefs = timeSignatureRefs.mapValues { it.value.toList() },
             barlineRefs = barlineRefs.mapValues { it.value.toList() },
             issues = issues.toList(),
             notesByObject = notesByObject,
@@ -312,12 +338,14 @@ object AlphaTabIdentityMapper {
             restsByObject = restsByObject,
             measuresByObject = measuresByObject,
             clefsByObject = clefsByObject,
+            timeSignaturesByObject = timeSignaturesByObject,
             barlinesByObject = barlinesByObject,
             notesByIdentity = notesByIdentity.toMap(),
             chordsByIdentity = chordsByIdentity.toMap(),
             restsByIdentity = restsByIdentity.toMap(),
             measuresByIdentity = measuresByIdentity.mapValues { it.value.toList() },
             clefsByIdentity = clefsByIdentity.mapValues { it.value.toList() },
+            timeSignaturesByIdentity = timeSignaturesByIdentity.mapValues { it.value.toList() },
             barlinesByIdentity = barlinesByIdentity.mapValues { it.value.toList() }
         )
     }

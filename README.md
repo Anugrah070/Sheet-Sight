@@ -5,9 +5,9 @@ PDF or image of printed sheet music, recognize it into structured
 MusicXML on-device, then (eventually) correct it, analyze it, and use it
 for real-time piano practice against a microphone/MIDI input.
 
-This README describes **only what exists in the current codebase**. Where
-something is scaffolded but not implemented, or planned but not started,
-it's labeled as such explicitly.
+This README describes **only what exists in the current codebase**, including
+the active working-tree editor changes as of 2026-08-31. Where something is
+scaffolded, unfinished, or planned, it is labeled explicitly.
 
 ---
 
@@ -35,7 +35,7 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   theming, bottom-tab navigation (`SheetSightNavHost`) across five tabs —
   Library, Editor, Practice, Analysis, Settings — plus a Preview screen.
 - **Library tab**: fully functional — grid/list view, search, sort, file
-  import via the system file picker, favorite/delete, backed by Room.
+  import via the system file picker, favorite/rename/delete, backed by Room.
 - **Score persistence**: Room database (`AppDatabase`, `ScoreDao`,
   `ScoreEntity`) and a `ScoreRepository`/`ScoreRepositoryImpl` pair
   exposing `Score` domain models via `Flow`.
@@ -53,7 +53,7 @@ ONNX Runtime Mobile, no network dependency for any core feature.
 - **OMR pipeline integration**: `DefaultScoreOmrProcessor` runs imported
   image/PDF pages through the complete recognition and MusicXML-export route.
   `OnnxOmrEngine` separately exposes the older decode-through-staff-grid seam.
-- **OMR pipeline components (part of a 366-test passing JVM suite)**:
+- **OMR pipeline components**:
   - oemer-compatible image preprocessing and tiling.
   - ONNX Runtime tensor preparation and real model inference.
   - prediction-map merging and class-mask extraction.
@@ -146,11 +146,25 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   the attached full-matrix export was truncated. Production recognition is unchanged.
 
 ### In progress
+- **Editor expansion (active working tree; not yet committed)**: the editor now
+  has a context toolbar and MusicXML edit transactions for inserting a pitched
+  note into a rest, deleting a note (including one tone of a chord), replacing
+  or inserting clefs, and replacing or inserting time signatures. It supports
+  whole through sixteenth note insertion where the score's divisions allow it,
+  validates edits before writing a new immutable app-managed MusicXML version,
+  and keeps the original artifact intact. The UI supplies insertion targeting,
+  duration choices, note deletion, and clef/time-signature controls; drag pitch
+  edits remain supported. This is a meaningful implementation milestone, but
+  it has not yet received a full device/instrumented validation pass.
 - **Production integration**: semantic construction is available as a
   tested component and developer smoke stage, but `OnnxOmrEngine` still
   stops at its documented later-phase integration seam.
-- **Testing**: 366 JVM tests pass. The Phase 4 classifier parity
-  instrumented test passes on the connected OnePlus device.
+- **Testing**: the repository contains 79 JVM test classes and 12 instrumented
+  test classes. The existing local Gradle report records 74 focused editor JVM
+  tests passing (including the new edit-transaction tests); the historical
+  366-test aggregate stated in older README revisions was not reproduced during
+  this documentation update. The Phase 4 classifier parity instrumented test
+  previously passed on the connected OnePlus device.
 - **Practice acoustic validation**: an initial OnePlus/physical-piano matrix
   exposed weak normal-distance edge-register attacks, intermittent legato
   transitions, and misleading PASS labels under a POOR calibration profile.
@@ -158,10 +172,11 @@ ONNX Runtime Mobile, no network dependency for any core feature.
   implemented; a repeat device matrix is still the tuning gate.
 
 ### Planned / not yet implemented
-- Editor duration changes, insertion/deletion, rest/chord mutation, Save UI,
-  Undo/Redo, and broader notation editing are not implemented. Phase 8.5 is
-  intentionally limited to adjacent natural-note changes on one unambiguously
-  selected note.
+- Editor changes to the duration of an existing note/rest, arbitrary rest and
+  chord mutation, insertion outside an existing rest, range-aware clef/time
+  changes in the UI, Undo/Redo, a user-visible revision/history UI, and broader
+  notation editing are still incomplete. Persistence is currently automatic
+  for the supported operations; there is no explicit Save or revision browser.
 - Analysis tab (key/chord/cadence/interval/motif detection, overlays) —
   placeholder screen only.
 - Practice scoring/grades, persistent analytics/history, dynamics, pedal
@@ -421,12 +436,18 @@ In dependency order:
 
 ## 8. Testing
 
-The codebase is verified with **366 passing JVM unit tests**
-(`app/src/test/...`). These verify the mathematical correctness of
-preprocessing, inference merging, mask extraction, full dewarping logic,
-staff identification, track voting, final grid validation, and typed
-classified-rest rhythm integration, plus MusicXML, Editor, Preview, and
-  Practice behavior. The focused Practice/audio subset contains 94 tests.
+The repository currently contains **79 JVM test classes** under
+`app/src/test/...` and **12 instrumented test classes** under
+`app/src/androidTest/...`. They cover preprocessing, inference merging, mask
+extraction, dewarping, staff identification, track voting, grid validation,
+classified-rest rhythm integration, MusicXML, Editor, Preview, and Practice
+behavior.
+
+The latest local Gradle HTML report available in this checkout records **74
+passing focused Editor JVM tests** and no failures. That report includes the
+new edit-transaction tests. An older README claimed an aggregate of 366 passing
+JVM tests; keep that as historical context only until a clean full-suite run
+reproduces it on this checkout.
 
 | Test file | Covers |
 |---|---|
@@ -490,10 +511,13 @@ legato tuning pass.
 Confirmed from the project's own Gradle configuration:
 
 - **Language/toolchain**: Kotlin 2.0.21, AGP 8.5.2, JVM target 17.
-- **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 25 (Android 7.1+).
+- **`compileSdk`/`targetSdk`**: 35. **`minSdk`**: 26 (Android 8.0+), required
+  by alphaTab's native Canvas/Skia renderer.
 - **Build**: standard Gradle Android project —
   `./gradlew assembleDebug` to build.
-- **Tests**: `./gradlew testDebugUnitTest` — **366 tests passing**.
+- **Tests**: `./gradlew testDebugUnitTest`. Run this cleanly before relying on
+  a suite-wide count; the checked-in README no longer treats the historical
+  366-test figure as a current verification result.
 - **Model assets**: the two segmentation models and four SVM ONNX exports
   are already under `app/src/main/assets/models/`.
 
@@ -542,10 +566,10 @@ Confirmed from the project's own Gradle configuration:
   real ONNX Runtime native library on-device. The OpenCV-backed preprocessing
   and newest `data/omr/track` components still lack device tests using real
   `cv2.HoughLinesP`/`cv2.findContours` calls.
-- **`OnnxOmrEngine`/`OmrRepository` are intentionally still stubs.** Their
-  `NotImplementedError` throws are not bugs — they're the explicit,
-  documented boundary between "components exist" and "pipeline is wired
-  up," per each file's own KDoc.
+- **`OnnxOmrEngine` remains a legacy partial entry point.** Its
+  `NotImplementedError` is an explicit boundary after staff-grid assembly;
+  the app-facing `DefaultScoreOmrProcessor` is the route that performs the
+  full semantic-construction and MusicXML-export flow.
 - **`data/omr/track` integration**: The components are fully integrated via
   `OmrStaffGridAssembler`, which performs barline detection, track-number
   voting, segment assignment, and final grid validation.

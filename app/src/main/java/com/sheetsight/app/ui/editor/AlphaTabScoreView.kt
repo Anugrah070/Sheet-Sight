@@ -63,6 +63,7 @@ internal fun AlphaTabScoreView(
     onAlphaTabScoreLoaded: (ImportedAlphaTabScore) -> Unit = {},
     identityMapping: AlphaTabIdentityMapping? = null,
     selection: AlphaTabRenderSelection? = null,
+    insertionCursor: AlphaTabRenderInsertionCursor? = null,
     pitchVisualUpdate: AlphaTabPitchVisualUpdate? = null,
     onSelectionHit: (AlphaTabSelectionHit) -> Unit = {},
     onNoteDragBy: (Int) -> Unit = {},
@@ -76,10 +77,11 @@ internal fun AlphaTabScoreView(
     var score by remember(sourceKey) { mutableStateOf<Score?>(null) }
     var isImporting by remember(sourceKey) { mutableStateOf(true) }
 
-    LaunchedEffect(sourceKey) {
+    LaunchedEffect(sourceKey, musicXml) {
         withContext(Dispatchers.Default) {
             runCatching {
                 isImporting = true
+                rendered = false
                 // Diagnostic logging (Part 7): verify OMR output has musical content
                 // before blaming the renderer for a blank screen.
                 val charCount = musicXml.length
@@ -180,6 +182,7 @@ internal fun AlphaTabScoreView(
                             onSystemChanged = onSystemChanged,
                             identityMapping = identityMapping,
                             selection = selection,
+                            insertionCursor = insertionCursor,
                             pitchVisualUpdate = pitchVisualUpdate,
                             onSelectionHit = onSelectionHit,
                             onNoteDragBy = onNoteDragBy,
